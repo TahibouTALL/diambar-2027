@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DIAMBAR 2027</title>
+<meta name="description" content="Démonstrateur de la plateforme DIAMBAR 2027 : surveillance maritime par drones de surface et fusion de données AIS, VMS et satellite.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<!--LEAFLET_CSS--><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><!--/LEAFLET_CSS-->
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1>DIAMBAR <span>2027</span></h1>
+      <small>Surveillance maritime du Sénégal · démonstrateur</small>
+    </div>
+    <div class="clock"><span id="clock">mer. 14 oct. 18:30</span><span class="night" id="daynight">nuit</span></div>
+    <div class="controls">
+      <button class="btn primary" id="play" type="button">Lecture</button>
+      <div class="seg" id="speeds" role="group" aria-label="Vitesse de simulation">
+        <button type="button" data-s="2">×2</button>
+        <button type="button" data-s="10" aria-pressed="true">×10</button>
+        <button type="button" data-s="30">×30</button>
+        <button type="button" data-s="60">×60</button>
+      </div>
+      <select class="btn" id="jump" aria-label="Aller à un cas">
+        <option value="">Aller à un cas…</option>
+      </select>
+      <button class="btn" id="reset" type="button">Recommencer</button>
+      <label class="toggle"><input type="checkbox" id="srModel" checked> Modèle drones-satellite</label>
+      <label class="toggle"><input type="checkbox" id="truth"> Vérité terrain</label>
+      <button class="btn" id="helpBtn" type="button">Aide</button>
+    </div>
+  </header>
+
+  <section class="kpis" aria-label="Indicateurs">
+    <div class="kpi"><div class="v" id="kOpen">0</div><div class="l">Alertes ouvertes</div></div>
+    <div class="kpi"><div class="v" id="kCov">0 %</div><div class="l">Couverture capteurs actifs</div></div>
+    <div class="kpi"><div class="v" id="kDelay">–</div><div class="l">Délai alerte → vérification</div></div>
+    <div class="kpi"><div class="v" id="kFalse">–</div><div class="l">Alertes infondées</div></div>
+    <div class="kpi"><div class="v" id="kDoc">0</div><div class="l">Infractions documentées</div></div>
+    <div class="kpi"><div class="v" id="kSaved">0</div><div class="l">Personnes secourues</div></div>
+  </section>
+
+  <div class="main">
+    <div class="mapwrap">
+      <div id="map" aria-label="Carte de la zone économique exclusive du Sénégal"></div>
+      <div class="toast-zone" id="toasts" aria-live="polite"></div>
+      <div class="legend" id="legend">
+        <details open>
+          <summary><b>Légende</b></summary>
+          <div class="row"><span class="sw" style="border:1.5px dashed #53c2cc"></span>ZEE (tracé indicatif)</div>
+          <div class="row"><span class="sw" style="border:1px solid #8ca2b0"></span>Limite des 12 milles</div>
+          <div class="row"><span class="sw" style="background:rgba(228,168,74,.12);border:1px solid #e4a84a"></span>Bande des 6 milles (pêche artisanale)</div>
+          <div class="row"><span class="sw" style="background:rgba(95,191,134,.25);border:1px solid #5fbf86"></span>Aire marine protégée</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><path d="M9 1 L15 11 L9 8 L3 11 Z" fill="#d9e4ea"/></svg>Navire suivi (AIS / VMS)</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><rect x="5" y="2" width="8" height="8" transform="rotate(45 9 6)" fill="none" stroke="#ffffff" stroke-width="1.6"/></svg>Contact non identifié</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><circle cx="9" cy="6" r="4.5" fill="#e4a84a"/></svg>Moyen DIAMBAR ou de l'État</div>
+        </details>
+      </div>
+    </div>
+
+    <aside class="side">
+      <nav class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="alerts">Alertes<span class="count" id="tabCount" hidden>0</span></button>
+        <button role="tab" aria-selected="false" data-tab="assets">Moyens</button>
+        <button role="tab" aria-selected="false" data-tab="ships">Navires</button>
+        <button role="tab" aria-selected="false" data-tab="journal">Journal</button>
+        <button role="tab" aria-selected="false" data-tab="system">Système</button>
+      </nav>
+      <div class="pane" id="pane"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="overlay" id="help" hidden>
+  <div class="box" role="dialog" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">DIAMBAR 2027</h2>
+    <p class="hint">Démonstrateur de la plateforme de surveillance maritime. Toutes les données sont simulées et tous les navires sont fictifs.</p>
+    <p>La simulation rejoue la nuit du 14 au 15 octobre 2026 dans la zone économique exclusive du Sénégal. La plateforme ne voit que ce que voient les capteurs : AIS, VMS de la DPSP, passages satellites, radars et caméras des drones et des patrouilleurs.</p>
+    <ol>
+      <li>Lancez la lecture. Les alertes apparaissent à droite, classées par score de risque.</li>
+      <li>Ouvrez une alerte pour voir pourquoi elle a été levée, puis envoyez le drone le plus proche la vérifier.</li>
+      <li>À l'arrivée, le drone produit une preuve horodatée et signée. Transmettez le dossier ou classez l'alerte.</li>
+      <li>Chaque vérification ajuste la fiabilité de la règle (onglet Système) : les fausses alertes reculent dans le classement.</li>
+      <li>Le menu « Aller à un cas » saute directement aux huit situations du scénario.</li>
+      <li>« Vérité terrain » révèle tous les navires, y compris ceux que les capteurs ne voient pas. C'est le mode formateur.</li>
+    </ol>
+    <p class="hint">Limites maritimes, aires marines protégées et installations : tracés indicatifs, non officiels. Côtes : Natural Earth.</p>
+    <button class="btn primary" id="helpClose" type="button">Commencer</button>
+  </div>
+</div>
+
+<!--LEAFLET_JS--><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script><!--/LEAFLET_JS-->
+<script src="js/geo-data.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/detect.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

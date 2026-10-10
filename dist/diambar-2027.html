@@ -1,0 +1,2685 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DIAMBAR 2027</title>
+<meta name="description" content="Démonstrateur de la plateforme DIAMBAR 2027 : surveillance maritime par drones de surface et fusion de données AIS, VMS et satellite.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* required styles */
+
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-container,
+.leaflet-pane > svg,
+.leaflet-pane > canvas,
+.leaflet-zoom-box,
+.leaflet-image-layer,
+.leaflet-layer {
+	position: absolute;
+	left: 0;
+	top: 0;
+	}
+.leaflet-container {
+	overflow: hidden;
+	}
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+	-webkit-user-select: none;
+	   -moz-user-select: none;
+	        user-select: none;
+	  -webkit-user-drag: none;
+	}
+/* Prevents IE11 from highlighting tiles in blue */
+.leaflet-tile::selection {
+	background: transparent;
+}
+/* Safari renders non-retina tile on retina better with this, but Chrome is worse */
+.leaflet-safari .leaflet-tile {
+	image-rendering: -webkit-optimize-contrast;
+	}
+/* hack that prevents hw layers "stretching" when loading new tiles */
+.leaflet-safari .leaflet-tile-container {
+	width: 1600px;
+	height: 1600px;
+	-webkit-transform-origin: 0 0;
+	}
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+	display: block;
+	}
+/* .leaflet-container svg: reset svg max-width decleration shipped in Joomla! (joomla.org) 3.x */
+/* .leaflet-container img: map is broken in FF if you have max-width: 100% on tiles */
+.leaflet-container .leaflet-overlay-pane svg {
+	max-width: none !important;
+	max-height: none !important;
+	}
+.leaflet-container .leaflet-marker-pane img,
+.leaflet-container .leaflet-shadow-pane img,
+.leaflet-container .leaflet-tile-pane img,
+.leaflet-container img.leaflet-image-layer,
+.leaflet-container .leaflet-tile {
+	max-width: none !important;
+	max-height: none !important;
+	width: auto;
+	padding: 0;
+	}
+
+.leaflet-container img.leaflet-tile {
+	/* See: https://bugs.chromium.org/p/chromium/issues/detail?id=600120 */
+	mix-blend-mode: plus-lighter;
+}
+
+.leaflet-container.leaflet-touch-zoom {
+	-ms-touch-action: pan-x pan-y;
+	touch-action: pan-x pan-y;
+	}
+.leaflet-container.leaflet-touch-drag {
+	-ms-touch-action: pinch-zoom;
+	/* Fallback for FF which doesn't support pinch-zoom */
+	touch-action: none;
+	touch-action: pinch-zoom;
+}
+.leaflet-container.leaflet-touch-drag.leaflet-touch-zoom {
+	-ms-touch-action: none;
+	touch-action: none;
+}
+.leaflet-container {
+	-webkit-tap-highlight-color: transparent;
+}
+.leaflet-container a {
+	-webkit-tap-highlight-color: rgba(51, 181, 229, 0.4);
+}
+.leaflet-tile {
+	filter: inherit;
+	visibility: hidden;
+	}
+.leaflet-tile-loaded {
+	visibility: inherit;
+	}
+.leaflet-zoom-box {
+	width: 0;
+	height: 0;
+	-moz-box-sizing: border-box;
+	     box-sizing: border-box;
+	z-index: 800;
+	}
+/* workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=888319 */
+.leaflet-overlay-pane svg {
+	-moz-user-select: none;
+	}
+
+.leaflet-pane         { z-index: 400; }
+
+.leaflet-tile-pane    { z-index: 200; }
+.leaflet-overlay-pane { z-index: 400; }
+.leaflet-shadow-pane  { z-index: 500; }
+.leaflet-marker-pane  { z-index: 600; }
+.leaflet-tooltip-pane   { z-index: 650; }
+.leaflet-popup-pane   { z-index: 700; }
+
+.leaflet-map-pane canvas { z-index: 100; }
+.leaflet-map-pane svg    { z-index: 200; }
+
+.leaflet-vml-shape {
+	width: 1px;
+	height: 1px;
+	}
+.lvml {
+	behavior: url(#default#VML);
+	display: inline-block;
+	position: absolute;
+	}
+
+
+/* control positioning */
+
+.leaflet-control {
+	position: relative;
+	z-index: 800;
+	pointer-events: visiblePainted; /* IE 9-10 doesn't have auto */
+	pointer-events: auto;
+	}
+.leaflet-top,
+.leaflet-bottom {
+	position: absolute;
+	z-index: 1000;
+	pointer-events: none;
+	}
+.leaflet-top {
+	top: 0;
+	}
+.leaflet-right {
+	right: 0;
+	}
+.leaflet-bottom {
+	bottom: 0;
+	}
+.leaflet-left {
+	left: 0;
+	}
+.leaflet-control {
+	float: left;
+	clear: both;
+	}
+.leaflet-right .leaflet-control {
+	float: right;
+	}
+.leaflet-top .leaflet-control {
+	margin-top: 10px;
+	}
+.leaflet-bottom .leaflet-control {
+	margin-bottom: 10px;
+	}
+.leaflet-left .leaflet-control {
+	margin-left: 10px;
+	}
+.leaflet-right .leaflet-control {
+	margin-right: 10px;
+	}
+
+
+/* zoom and fade animations */
+
+.leaflet-fade-anim .leaflet-popup {
+	opacity: 0;
+	-webkit-transition: opacity 0.2s linear;
+	   -moz-transition: opacity 0.2s linear;
+	        transition: opacity 0.2s linear;
+	}
+.leaflet-fade-anim .leaflet-map-pane .leaflet-popup {
+	opacity: 1;
+	}
+.leaflet-zoom-animated {
+	-webkit-transform-origin: 0 0;
+	    -ms-transform-origin: 0 0;
+	        transform-origin: 0 0;
+	}
+svg.leaflet-zoom-animated {
+	will-change: transform;
+}
+
+.leaflet-zoom-anim .leaflet-zoom-animated {
+	-webkit-transition: -webkit-transform 0.25s cubic-bezier(0,0,0.25,1);
+	   -moz-transition:    -moz-transform 0.25s cubic-bezier(0,0,0.25,1);
+	        transition:         transform 0.25s cubic-bezier(0,0,0.25,1);
+	}
+.leaflet-zoom-anim .leaflet-tile,
+.leaflet-pan-anim .leaflet-tile {
+	-webkit-transition: none;
+	   -moz-transition: none;
+	        transition: none;
+	}
+
+.leaflet-zoom-anim .leaflet-zoom-hide {
+	visibility: hidden;
+	}
+
+
+/* cursors */
+
+.leaflet-interactive {
+	cursor: pointer;
+	}
+.leaflet-grab {
+	cursor: -webkit-grab;
+	cursor:    -moz-grab;
+	cursor:         grab;
+	}
+.leaflet-crosshair,
+.leaflet-crosshair .leaflet-interactive {
+	cursor: crosshair;
+	}
+.leaflet-popup-pane,
+.leaflet-control {
+	cursor: auto;
+	}
+.leaflet-dragging .leaflet-grab,
+.leaflet-dragging .leaflet-grab .leaflet-interactive,
+.leaflet-dragging .leaflet-marker-draggable {
+	cursor: move;
+	cursor: -webkit-grabbing;
+	cursor:    -moz-grabbing;
+	cursor:         grabbing;
+	}
+
+/* marker & overlays interactivity */
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-image-layer,
+.leaflet-pane > svg path,
+.leaflet-tile-container {
+	pointer-events: none;
+	}
+
+.leaflet-marker-icon.leaflet-interactive,
+.leaflet-image-layer.leaflet-interactive,
+.leaflet-pane > svg path.leaflet-interactive,
+svg.leaflet-image-layer.leaflet-interactive path {
+	pointer-events: visiblePainted; /* IE 9-10 doesn't have auto */
+	pointer-events: auto;
+	}
+
+/* visual tweaks */
+
+.leaflet-container {
+	background: #ddd;
+	outline-offset: 1px;
+	}
+.leaflet-container a {
+	color: #0078A8;
+	}
+.leaflet-zoom-box {
+	border: 2px dotted #38f;
+	background: rgba(255,255,255,0.5);
+	}
+
+
+/* general typography */
+.leaflet-container {
+	font-family: "Helvetica Neue", Arial, Helvetica, sans-serif;
+	font-size: 12px;
+	font-size: 0.75rem;
+	line-height: 1.5;
+	}
+
+
+/* general toolbar styles */
+
+.leaflet-bar {
+	box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+	border-radius: 4px;
+	}
+.leaflet-bar a {
+	background-color: #fff;
+	border-bottom: 1px solid #ccc;
+	width: 26px;
+	height: 26px;
+	line-height: 26px;
+	display: block;
+	text-align: center;
+	text-decoration: none;
+	color: black;
+	}
+.leaflet-bar a,
+.leaflet-control-layers-toggle {
+	background-position: 50% 50%;
+	background-repeat: no-repeat;
+	display: block;
+	}
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+	background-color: #f4f4f4;
+	}
+.leaflet-bar a:first-child {
+	border-top-left-radius: 4px;
+	border-top-right-radius: 4px;
+	}
+.leaflet-bar a:last-child {
+	border-bottom-left-radius: 4px;
+	border-bottom-right-radius: 4px;
+	border-bottom: none;
+	}
+.leaflet-bar a.leaflet-disabled {
+	cursor: default;
+	background-color: #f4f4f4;
+	color: #bbb;
+	}
+
+.leaflet-touch .leaflet-bar a {
+	width: 30px;
+	height: 30px;
+	line-height: 30px;
+	}
+.leaflet-touch .leaflet-bar a:first-child {
+	border-top-left-radius: 2px;
+	border-top-right-radius: 2px;
+	}
+.leaflet-touch .leaflet-bar a:last-child {
+	border-bottom-left-radius: 2px;
+	border-bottom-right-radius: 2px;
+	}
+
+/* zoom control */
+
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+	font: bold 18px 'Lucida Console', Monaco, monospace;
+	text-indent: 1px;
+	}
+
+.leaflet-touch .leaflet-control-zoom-in, .leaflet-touch .leaflet-control-zoom-out  {
+	font-size: 22px;
+	}
+
+
+/* layers control */
+
+.leaflet-control-layers {
+	box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+	background: #fff;
+	border-radius: 5px;
+	}
+.leaflet-control-layers-toggle {
+	background-image: url(images/layers.png);
+	width: 36px;
+	height: 36px;
+	}
+.leaflet-retina .leaflet-control-layers-toggle {
+	background-image: url(images/layers-2x.png);
+	background-size: 26px 26px;
+	}
+.leaflet-touch .leaflet-control-layers-toggle {
+	width: 44px;
+	height: 44px;
+	}
+.leaflet-control-layers .leaflet-control-layers-list,
+.leaflet-control-layers-expanded .leaflet-control-layers-toggle {
+	display: none;
+	}
+.leaflet-control-layers-expanded .leaflet-control-layers-list {
+	display: block;
+	position: relative;
+	}
+.leaflet-control-layers-expanded {
+	padding: 6px 10px 6px 6px;
+	color: #333;
+	background: #fff;
+	}
+.leaflet-control-layers-scrollbar {
+	overflow-y: scroll;
+	overflow-x: hidden;
+	padding-right: 5px;
+	}
+.leaflet-control-layers-selector {
+	margin-top: 2px;
+	position: relative;
+	top: 1px;
+	}
+.leaflet-control-layers label {
+	display: block;
+	font-size: 13px;
+	font-size: 1.08333em;
+	}
+.leaflet-control-layers-separator {
+	height: 0;
+	border-top: 1px solid #ddd;
+	margin: 5px -10px 5px -6px;
+	}
+
+/* Default icon URLs */
+.leaflet-default-icon-path { /* used only in path-guessing heuristic, see L.Icon.Default */
+	background-image: url(images/marker-icon.png);
+	}
+
+
+/* attribution and scale controls */
+
+.leaflet-container .leaflet-control-attribution {
+	background: #fff;
+	background: rgba(255, 255, 255, 0.8);
+	margin: 0;
+	}
+.leaflet-control-attribution,
+.leaflet-control-scale-line {
+	padding: 0 5px;
+	color: #333;
+	line-height: 1.4;
+	}
+.leaflet-control-attribution a {
+	text-decoration: none;
+	}
+.leaflet-control-attribution a:hover,
+.leaflet-control-attribution a:focus {
+	text-decoration: underline;
+	}
+.leaflet-attribution-flag {
+	display: inline !important;
+	vertical-align: baseline !important;
+	width: 1em;
+	height: 0.6669em;
+	}
+.leaflet-left .leaflet-control-scale {
+	margin-left: 5px;
+	}
+.leaflet-bottom .leaflet-control-scale {
+	margin-bottom: 5px;
+	}
+.leaflet-control-scale-line {
+	border: 2px solid #777;
+	border-top: none;
+	line-height: 1.1;
+	padding: 2px 5px 1px;
+	white-space: nowrap;
+	-moz-box-sizing: border-box;
+	     box-sizing: border-box;
+	background: rgba(255, 255, 255, 0.8);
+	text-shadow: 1px 1px #fff;
+	}
+.leaflet-control-scale-line:not(:first-child) {
+	border-top: 2px solid #777;
+	border-bottom: none;
+	margin-top: -2px;
+	}
+.leaflet-control-scale-line:not(:first-child):not(:last-child) {
+	border-bottom: 2px solid #777;
+	}
+
+.leaflet-touch .leaflet-control-attribution,
+.leaflet-touch .leaflet-control-layers,
+.leaflet-touch .leaflet-bar {
+	box-shadow: none;
+	}
+.leaflet-touch .leaflet-control-layers,
+.leaflet-touch .leaflet-bar {
+	border: 2px solid rgba(0,0,0,0.2);
+	background-clip: padding-box;
+	}
+
+
+/* popup */
+
+.leaflet-popup {
+	position: absolute;
+	text-align: center;
+	margin-bottom: 20px;
+	}
+.leaflet-popup-content-wrapper {
+	padding: 1px;
+	text-align: left;
+	border-radius: 12px;
+	}
+.leaflet-popup-content {
+	margin: 13px 24px 13px 20px;
+	line-height: 1.3;
+	font-size: 13px;
+	font-size: 1.08333em;
+	min-height: 1px;
+	}
+.leaflet-popup-content p {
+	margin: 17px 0;
+	margin: 1.3em 0;
+	}
+.leaflet-popup-tip-container {
+	width: 40px;
+	height: 20px;
+	position: absolute;
+	left: 50%;
+	margin-top: -1px;
+	margin-left: -20px;
+	overflow: hidden;
+	pointer-events: none;
+	}
+.leaflet-popup-tip {
+	width: 17px;
+	height: 17px;
+	padding: 1px;
+
+	margin: -10px auto 0;
+	pointer-events: auto;
+
+	-webkit-transform: rotate(45deg);
+	   -moz-transform: rotate(45deg);
+	    -ms-transform: rotate(45deg);
+	        transform: rotate(45deg);
+	}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+	background: white;
+	color: #333;
+	box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+	}
+.leaflet-container a.leaflet-popup-close-button {
+	position: absolute;
+	top: 0;
+	right: 0;
+	border: none;
+	text-align: center;
+	width: 24px;
+	height: 24px;
+	font: 16px/24px Tahoma, Verdana, sans-serif;
+	color: #757575;
+	text-decoration: none;
+	background: transparent;
+	}
+.leaflet-container a.leaflet-popup-close-button:hover,
+.leaflet-container a.leaflet-popup-close-button:focus {
+	color: #585858;
+	}
+.leaflet-popup-scrolled {
+	overflow: auto;
+	}
+
+.leaflet-oldie .leaflet-popup-content-wrapper {
+	-ms-zoom: 1;
+	}
+.leaflet-oldie .leaflet-popup-tip {
+	width: 24px;
+	margin: 0 auto;
+
+	-ms-filter: "progid:DXImageTransform.Microsoft.Matrix(M11=0.70710678, M12=0.70710678, M21=-0.70710678, M22=0.70710678)";
+	filter: progid:DXImageTransform.Microsoft.Matrix(M11=0.70710678, M12=0.70710678, M21=-0.70710678, M22=0.70710678);
+	}
+
+.leaflet-oldie .leaflet-control-zoom,
+.leaflet-oldie .leaflet-control-layers,
+.leaflet-oldie .leaflet-popup-content-wrapper,
+.leaflet-oldie .leaflet-popup-tip {
+	border: 1px solid #999;
+	}
+
+
+/* div icon */
+
+.leaflet-div-icon {
+	background: #fff;
+	border: 1px solid #666;
+	}
+
+
+/* Tooltip */
+/* Base styles for the element that has a tooltip */
+.leaflet-tooltip {
+	position: absolute;
+	padding: 6px;
+	background-color: #fff;
+	border: 1px solid #fff;
+	border-radius: 3px;
+	color: #222;
+	white-space: nowrap;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+	pointer-events: none;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+	}
+.leaflet-tooltip.leaflet-interactive {
+	cursor: pointer;
+	pointer-events: auto;
+	}
+.leaflet-tooltip-top:before,
+.leaflet-tooltip-bottom:before,
+.leaflet-tooltip-left:before,
+.leaflet-tooltip-right:before {
+	position: absolute;
+	pointer-events: none;
+	border: 6px solid transparent;
+	background: transparent;
+	content: "";
+	}
+
+/* Directions */
+
+.leaflet-tooltip-bottom {
+	margin-top: 6px;
+}
+.leaflet-tooltip-top {
+	margin-top: -6px;
+}
+.leaflet-tooltip-bottom:before,
+.leaflet-tooltip-top:before {
+	left: 50%;
+	margin-left: -6px;
+	}
+.leaflet-tooltip-top:before {
+	bottom: 0;
+	margin-bottom: -12px;
+	border-top-color: #fff;
+	}
+.leaflet-tooltip-bottom:before {
+	top: 0;
+	margin-top: -12px;
+	margin-left: -6px;
+	border-bottom-color: #fff;
+	}
+.leaflet-tooltip-left {
+	margin-left: -6px;
+}
+.leaflet-tooltip-right {
+	margin-left: 6px;
+}
+.leaflet-tooltip-left:before,
+.leaflet-tooltip-right:before {
+	top: 50%;
+	margin-top: -6px;
+	}
+.leaflet-tooltip-left:before {
+	right: 0;
+	margin-right: -12px;
+	border-left-color: #fff;
+	}
+.leaflet-tooltip-right:before {
+	left: 0;
+	margin-left: -12px;
+	border-right-color: #fff;
+	}
+
+/* Printing */
+
+@media print {
+	/* Prevent printers from removing background-images of controls. */
+	.leaflet-control {
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+		}
+	}
+</style>
+<style>/* Console de veille maritime : carte à gauche, salle d'opérations à droite.
+   Parti pris assumé d'un seul thème sombre (salle d'opérations de nuit). */
+:root {
+  color-scheme: dark;
+  --ink: #0d1820;        /* fond général */
+  --panel: #12212b;      /* panneaux */
+  --panel-2: #172a36;    /* éléments surélevés */
+  --line: #24394a;       /* filets */
+  --fg: #d9e4ea;         /* texte */
+  --muted: #8ca2b0;      /* texte secondaire */
+  --sea: #10283a;        /* mer sur la carte */
+  --land: #2b3a33;       /* terre */
+  --land-line: #4d6357;
+  --accent: #53c2cc;     /* interactif, données plateforme */
+  --own: #e4a84a;        /* moyens DIAMBAR et de l'État */
+  --crit: #ef5350;
+  --high: #f08a3e;
+  --mid: #d9c255;
+  --low: #7f97a6;
+  --ok: #5fbf86;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 6px;
+}
+
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--fg);
+  font: 14px/1.45 var(--font-body);
+  overflow: hidden;
+}
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+
+/* Barre supérieure */
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { margin: 0; font: 600 24px/1 var(--font-display); letter-spacing: 0.06em; }
+.brand h1 span { color: var(--own); }
+.brand small { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; }
+.clock { font: 500 15px var(--font-data); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 8px; }
+.clock .night { font: 500 11px var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); padding: 1px 6px; border-radius: 99px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.btn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 5px 10px; cursor: pointer; line-height: 1.3;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--ink); border-color: var(--accent); font-weight: 600; }
+.btn.own { border-color: var(--own); color: var(--own); }
+.btn.own:hover { background: color-mix(in srgb, var(--own) 14%, transparent); }
+.btn.danger { background: var(--crit); border-color: var(--crit); color: #fff; font-weight: 600; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 5px 9px; cursor: pointer; font: 500 12px var(--font-data); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--ink); }
+select.btn { padding-right: 6px; max-width: 260px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.toggle input { accent-color: var(--accent); }
+
+/* Indicateurs */
+.kpis {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line); background: var(--ink);
+}
+.kpi { padding: 7px 16px; border-right: 1px solid var(--line); min-width: 0; }
+.kpi:last-child { border-right: 0; }
+.kpi .v { font: 600 22px/1.1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.kpi .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .v small { font: 500 12px var(--font-body); color: var(--muted); margin-left: 4px; }
+.sevs { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.sevs i { font-style: normal; font: 500 11px var(--font-data); padding: 0 5px; border-radius: 3px; color: var(--ink); }
+
+/* Corps */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; min-height: 0; }
+.mapwrap { position: relative; min-height: 0; min-width: 0; }
+#map { position: absolute; inset: 0; background: var(--sea); }
+.legend {
+  position: absolute; left: 12px; bottom: 22px; z-index: 500; background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; font-size: 12px; display: grid; gap: 4px; max-width: 250px;
+}
+.legend b { font: 600 12px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.legend .row { display: flex; align-items: center; gap: 7px; }
+.legend .sw { width: 18px; height: 10px; border-radius: 2px; flex: none; }
+.legend details summary { cursor: pointer; list-style: none; }
+.toast-zone { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 600; display: grid; gap: 6px; pointer-events: none; width: min(520px, calc(100% - 32px)); }
+.toast { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 7px 12px; border-radius: var(--r); font-size: 13px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
+.toast.crit { border-left-color: var(--crit); }
+.toast.sat { border-left-color: #9fb6ff; }
+
+/* Panneau latéral */
+.side { display: grid; grid-template-rows: auto 1fr; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; min-width: 0; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button {
+  flex: 1 0 auto; background: none; border: 0; border-bottom: 2px solid transparent; padding: 9px 7px; cursor: pointer;
+  font: 600 13.5px var(--font-display); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+}
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs .count { font: 500 11px var(--font-data); background: var(--crit); color: #fff; border-radius: 99px; padding: 0 6px; margin-left: 4px; }
+.pane { overflow-y: auto; min-height: 0; padding: 12px 14px 24px; }
+.pane h2 { font: 600 16px var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; margin: 4px 0 8px; color: var(--muted); }
+.pane h3 { font: 600 15px var(--font-display); letter-spacing: 0.04em; margin: 14px 0 6px; }
+.hint { color: var(--muted); font-size: 12.5px; }
+.empty { color: var(--muted); padding: 18px 4px; font-size: 13px; }
+
+/* Liste d'alertes */
+.alerts { display: grid; gap: 6px; }
+.alert {
+  display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: 0 10px; align-items: stretch;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; text-align: left; padding: 0;
+}
+.alert:hover { border-color: var(--accent); }
+.alert .stripe { border-radius: var(--r) 0 0 var(--r); }
+.alert .body { padding: 7px 0; min-width: 0; }
+.alert .t { font-weight: 600; font-size: 13.5px; }
+.alert .s { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alert .meta { padding: 7px 10px 7px 0; display: grid; justify-items: end; align-content: space-between; gap: 4px; }
+.score { font: 600 18px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.chip { font: 500 10.5px var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--line); border-radius: 99px; padding: 1px 7px; white-space: nowrap; color: var(--muted); }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.chip.bad { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 50%, transparent); }
+.chip.run { color: var(--own); border-color: color-mix(in srgb, var(--own) 50%, transparent); }
+.alert.closed { opacity: 0.55; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
+
+/* Détail d'alerte */
+.back { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; margin-bottom: 8px; font-size: 13px; }
+.detail-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.detail-head h3 { margin: 0; font-size: 19px; }
+.bigscore { text-align: center; border: 1px solid var(--line); border-radius: var(--r); padding: 4px 10px; }
+.bigscore .score { font-size: 30px; }
+.bigscore small { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+dl.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; margin: 10px 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-family: var(--font-data); font-size: 12.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.factors { list-style: none; padding: 0; margin: 6px 0 12px; display: grid; gap: 3px; font-size: 13px; }
+.factors li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.factors li span:last-child { font-family: var(--font-data); color: var(--muted); }
+.actions { display: grid; gap: 6px; margin: 10px 0; }
+.actions .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.actions .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 6px; }
+.outcome { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; font-size: 13px; margin: 8px 0; }
+
+/* Preuve */
+.evidence { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin: 10px 0; background: var(--ink); }
+.evidence img { display: block; width: 100%; height: auto; }
+.evidence .ev-body { padding: 8px 10px; display: grid; gap: 6px; font-size: 13px; }
+.evidence .hash { font: 11px var(--font-data); color: var(--muted); overflow-wrap: anywhere; }
+.verdict { font: 600 13px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; }
+.verdict.ok { color: var(--crit); }
+.verdict.no { color: var(--ok); }
+
+/* Moyens */
+.assets { display: grid; gap: 8px; }
+.asset { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; display: grid; gap: 4px; }
+.asset .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.asset .name { font: 600 16px var(--font-display); letter-spacing: 0.04em; }
+.asset .type { color: var(--muted); font-size: 12px; }
+.bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--own); }
+
+/* Tableaux */
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 600 12px var(--font-display); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); background: var(--panel-2); }
+td.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+tr.hit td { color: var(--crit); }
+.search { width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 9px; margin: 4px 0 8px; }
+.check { padding: 8px 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; margin-bottom: 8px; }
+
+/* Journal */
+.journal { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.journal li { display: grid; grid-template-columns: 46px 64px minmax(0, 1fr); gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.journal time { font-family: var(--font-data); color: var(--muted); }
+.journal .k { font: 600 11px var(--font-display); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.journal .k.alert { color: var(--high); }
+.journal .k.verif { color: var(--accent); }
+.journal .k.sat { color: #9fb6ff; }
+.journal .k.asset, .journal .k.decision { color: var(--own); }
+
+/* Apprentissage */
+.learn { display: grid; gap: 6px; }
+.learn .r { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; gap: 8px; align-items: center; font-size: 12.5px; }
+.learn .meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.learn .meter i { display: block; height: 100%; background: var(--accent); }
+.learn .n { font-family: var(--font-data); color: var(--muted); text-align: right; font-size: 11.5px; }
+.note { border-left: 2px solid var(--own); padding: 4px 10px; color: var(--muted); font-size: 12.5px; margin: 10px 0; }
+
+/* Marqueurs de carte */
+.mk { pointer-events: auto; }
+.mk-label { font: 500 10.5px var(--font-data); color: var(--fg); white-space: nowrap; text-shadow: 0 0 3px var(--ink), 0 0 3px var(--ink); }
+.pulse { border-radius: 50%; border: 2px solid var(--crit); animation: pulse 1.6s ease-out infinite; }
+@keyframes pulse { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+.leaflet-container { background: var(--sea); font-family: var(--font-body); }
+.leaflet-tooltip { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); box-shadow: none; font-size: 12px; }
+.leaflet-tooltip-top:before { border-top-color: var(--line); }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--panel-2); color: var(--fg); border-bottom-color: var(--line); }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--ink) 80%, transparent) !important; color: var(--muted) !important; font-size: 10px; }
+.leaflet-control-attribution a { color: var(--accent) !important; }
+
+/* Aide */
+.overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(5,10,14,.72); display: grid; place-items: center; padding: 16px; }
+.overlay .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-width: 640px; width: 100%; max-height: calc(100% - 32px); overflow-y: auto; padding: 18px 22px; }
+.overlay h2 { font: 600 26px var(--font-display); letter-spacing: 0.05em; margin: 0 0 4px; }
+.overlay ol { padding-left: 20px; display: grid; gap: 6px; }
+.overlay p, .overlay li { max-width: 65ch; }
+
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+/* Tablette et téléphone */
+@media (max-width: 1100px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kpi:nth-child(3) { border-right: 0; }
+  .kpi:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+  .main { grid-template-columns: minmax(0, 1fr) 360px; }
+}
+@media (max-width: 760px) {
+  body { overflow: auto; }
+  .app { height: auto; display: block; }
+  .main { display: block; }
+  .mapwrap { height: 56vh; }
+  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .pane { max-height: none; overflow: visible; }
+  .controls { margin-left: 0; }
+  .kpi { padding: 6px 12px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi:nth-child(3) { border-right: 1px solid var(--line); }
+  .kpi:nth-child(2n) { border-right: 0; }
+  .kpi:nth-child(-n+4) { border-bottom: 1px solid var(--line); }
+  .legend { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1>DIAMBAR <span>2027</span></h1>
+      <small>Surveillance maritime du Sénégal · démonstrateur</small>
+    </div>
+    <div class="clock"><span id="clock">mer. 14 oct. 18:30</span><span class="night" id="daynight">nuit</span></div>
+    <div class="controls">
+      <button class="btn primary" id="play" type="button">Lecture</button>
+      <div class="seg" id="speeds" role="group" aria-label="Vitesse de simulation">
+        <button type="button" data-s="2">×2</button>
+        <button type="button" data-s="10" aria-pressed="true">×10</button>
+        <button type="button" data-s="30">×30</button>
+        <button type="button" data-s="60">×60</button>
+      </div>
+      <select class="btn" id="jump" aria-label="Aller à un cas">
+        <option value="">Aller à un cas…</option>
+      </select>
+      <button class="btn" id="reset" type="button">Recommencer</button>
+      <label class="toggle"><input type="checkbox" id="srModel" checked> Modèle drones-satellite</label>
+      <label class="toggle"><input type="checkbox" id="truth"> Vérité terrain</label>
+      <button class="btn" id="helpBtn" type="button">Aide</button>
+    </div>
+  </header>
+
+  <section class="kpis" aria-label="Indicateurs">
+    <div class="kpi"><div class="v" id="kOpen">0</div><div class="l">Alertes ouvertes</div></div>
+    <div class="kpi"><div class="v" id="kCov">0 %</div><div class="l">Couverture capteurs actifs</div></div>
+    <div class="kpi"><div class="v" id="kDelay">–</div><div class="l">Délai alerte → vérification</div></div>
+    <div class="kpi"><div class="v" id="kFalse">–</div><div class="l">Alertes infondées</div></div>
+    <div class="kpi"><div class="v" id="kDoc">0</div><div class="l">Infractions documentées</div></div>
+    <div class="kpi"><div class="v" id="kSaved">0</div><div class="l">Personnes secourues</div></div>
+  </section>
+
+  <div class="main">
+    <div class="mapwrap">
+      <div id="map" aria-label="Carte de la zone économique exclusive du Sénégal"></div>
+      <div class="toast-zone" id="toasts" aria-live="polite"></div>
+      <div class="legend" id="legend">
+        <details open>
+          <summary><b>Légende</b></summary>
+          <div class="row"><span class="sw" style="border:1.5px dashed #53c2cc"></span>ZEE (tracé indicatif)</div>
+          <div class="row"><span class="sw" style="border:1px solid #8ca2b0"></span>Limite des 12 milles</div>
+          <div class="row"><span class="sw" style="background:rgba(228,168,74,.12);border:1px solid #e4a84a"></span>Bande des 6 milles (pêche artisanale)</div>
+          <div class="row"><span class="sw" style="background:rgba(95,191,134,.25);border:1px solid #5fbf86"></span>Aire marine protégée</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><path d="M9 1 L15 11 L9 8 L3 11 Z" fill="#d9e4ea"/></svg>Navire suivi (AIS / VMS)</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><rect x="5" y="2" width="8" height="8" transform="rotate(45 9 6)" fill="none" stroke="#ffffff" stroke-width="1.6"/></svg>Contact non identifié</div>
+          <div class="row"><svg width="18" height="12" aria-hidden="true"><circle cx="9" cy="6" r="4.5" fill="#e4a84a"/></svg>Moyen DIAMBAR ou de l'État</div>
+        </details>
+      </div>
+    </div>
+
+    <aside class="side">
+      <nav class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="alerts">Alertes<span class="count" id="tabCount" hidden>0</span></button>
+        <button role="tab" aria-selected="false" data-tab="assets">Moyens</button>
+        <button role="tab" aria-selected="false" data-tab="ships">Navires</button>
+        <button role="tab" aria-selected="false" data-tab="journal">Journal</button>
+        <button role="tab" aria-selected="false" data-tab="system">Système</button>
+      </nav>
+      <div class="pane" id="pane"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="overlay" id="help" hidden>
+  <div class="box" role="dialog" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">DIAMBAR 2027</h2>
+    <p class="hint">Démonstrateur de la plateforme de surveillance maritime. Toutes les données sont simulées et tous les navires sont fictifs.</p>
+    <p>La simulation rejoue la nuit du 14 au 15 octobre 2026 dans la zone économique exclusive du Sénégal. La plateforme ne voit que ce que voient les capteurs : AIS, VMS de la DPSP, passages satellites, radars et caméras des drones et des patrouilleurs.</p>
+    <ol>
+      <li>Lancez la lecture. Les alertes apparaissent à droite, classées par score de risque.</li>
+      <li>Ouvrez une alerte pour voir pourquoi elle a été levée, puis envoyez le drone le plus proche la vérifier.</li>
+      <li>À l'arrivée, le drone produit une preuve horodatée et signée. Transmettez le dossier ou classez l'alerte.</li>
+      <li>Chaque vérification ajuste la fiabilité de la règle (onglet Système) : les fausses alertes reculent dans le classement.</li>
+      <li>Le menu « Aller à un cas » saute directement aux huit situations du scénario.</li>
+      <li>« Vérité terrain » révèle tous les navires, y compris ceux que les capteurs ne voient pas. C'est le mode formateur.</li>
+    </ol>
+    <p class="hint">Limites maritimes, aires marines protégées et installations : tracés indicatifs, non officiels. Côtes : Natural Earth.</p>
+    <button class="btn primary" id="helpClose" type="button">Commencer</button>
+  </div>
+</div>
+
+<!--LEAFLET_JS--><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script><!--/LEAFLET_JS-->
+<script>// Généré par tools/build-geo.js. Tracés indicatifs, non officiels.
+// Source des côtes : Natural Earth 1:10m via world-atlas (domaine public).
+window.DIAMBAR_GEO = {"land":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Guinea"},"geometry":{"type":"Polygon","coordinates":[[[-14.3607,11.6],[-14.3263,11.6213],[-14.3083,11.6551],[-14.2903,11.6686],[-14.1967,11.6602],[-14.1715,11.6636],[-14.1355,11.6416],[-14.1175,11.6382],[-14.0599,11.6433],[-14.0167,11.6365],[-13.9951,11.6433],[-13.9447,11.6754],[-13.9231,11.6652],[-13.9051,11.6652],[-13.8871,11.6754],[-13.8727,11.694],[-13.8691,11.7429],[-13.8475,11.7379],[-13.8439,11.7176],[-13.8187,11.7075],[-13.8223,11.694],[-13.8151,11.6872],[-13.7971,11.6838],[-13.7683,11.6889],[-13.7287,11.7092],[-13.7179,11.7666],[-13.7359,11.9016],[-13.7215,11.9844],[-13.7251,12.003],[-13.7359,12.0199],[-13.8079,12.0435],[-13.8367,12.0773],[-13.8367,12.0857],[-13.8799,12.1077],[-13.8979,12.1262],[-13.9375,12.1448],[-13.9735,12.1516],[-13.9663,12.1938],[-13.9447,12.2191],[-13.8835,12.2461],[-13.8403,12.2765],[-13.8115,12.2833],[-13.7971,12.2782],[-13.8079,12.2563],[-13.7395,12.2563],[-13.7107,12.2681],[-13.6963,12.2934],[-13.6927,12.3187],[-13.6819,12.339],[-13.6855,12.3913],[-13.6603,12.4589],[-13.6747,12.496],[-13.7251,12.5585],[-13.7359,12.5855],[-13.7287,12.6733],[-13.4047,12.6615],[-13.3399,12.6396],[-13.2859,12.6531],[-13.2535,12.6412],[-13.2211,12.648],[-13.2031,12.6328],[-13.1707,12.6396],[-13.1563,12.6328],[-13.1455,12.6446],[-13.1275,12.6345],[-13.0771,12.6362],[-13.0627,12.6227],[-13.0591,12.5838],[-13.0843,12.5163],[-13.0663,12.4808],[-13.0519,12.4724],[-12.9799,12.4673],[-12.9691,12.4775],[-12.9511,12.5366],[-12.9115,12.5366],[-12.8503,12.4943],[-12.8503,12.4758],[-12.8395,12.4656],[-12.7819,12.4538],[-12.7747,12.4352],[-12.6667,12.4336],[-12.6307,12.4133],[-12.6019,12.3812],[-12.5947,12.3609],[-12.5767,12.3609],[-12.5047,12.3896],[-12.4651,12.3846],[-12.4219,12.3694],[-12.4039,12.3559],[-12.3787,12.3137],[-12.3607,12.3052],[-12.1915,12.3491],[-12.1051,12.4065],[-12.0799,12.4082],[-11.9971,12.3863],[-11.9323,12.4184],[-11.9215,12.4184],[-11.8603,12.3913],[-11.8,12.3846],[-11.8,11.6],[-14.3607,11.6]]]}},{"type":"Feature","properties":{"name":"Mali"},"geometry":{"type":"Polygon","coordinates":[[[-12.2635,14.7756],[-12.2239,14.7638],[-12.1375,14.7841],[-12.0691,14.7351],[-12.0511,14.7672],[-12.0115,14.7621],[-11.9899,14.7689],[-11.9359,14.8229],[-11.8963,14.8313],[-11.8783,14.8415],[-11.8531,14.8668],[-11.8387,14.8938],[-11.8207,14.9006],[-11.8315,14.9259],[-11.8099,15.0137],[-11.8135,15.0289],[-11.8315,15.0492],[-11.8495,15.0424],[-11.8603,15.0542],[-11.8459,15.1251],[-11.8459,15.1792],[-11.8279,15.2332],[-11.8171,15.2957],[-11.8,15.3332],[-11.8,13.3243],[-11.8243,13.3065],[-11.8459,13.3234],[-11.8531,13.3504],[-11.8963,13.3707],[-11.8999,13.3825],[-11.8819,13.4535],[-11.8891,13.4653],[-11.9251,13.4805],[-11.9323,13.4957],[-12.0151,13.5649],[-12.0367,13.5987],[-12.0691,13.673],[-12.0979,13.7051],[-12.0115,13.7506],[-11.9791,13.7844],[-11.9611,13.83],[-11.9611,13.9094],[-12.0007,13.9431],[-12.0259,13.9854],[-12.0259,14.0276],[-12.0043,14.1036],[-11.9971,14.166],[-12.0439,14.2657],[-12.0979,14.2876],[-12.1195,14.3112],[-12.1267,14.3248],[-12.1123,14.3298],[-12.1087,14.3416],[-12.1159,14.3552],[-12.2203,14.3906],[-12.2203,14.4345],[-12.2347,14.4987],[-12.2311,14.5375],[-12.2059,14.5544],[-12.1987,14.5882],[-12.1699,14.6169],[-12.1663,14.6422],[-12.1915,14.6557],[-12.1915,14.6743],[-12.1807,14.6929],[-12.2239,14.703],[-12.2563,14.7452],[-12.2635,14.7756]]]}},{"type":"Feature","properties":{"name":"Senegal"},"geometry":{"type":"Polygon","coordinates":[[[-12.2635,14.7756],[-12.2563,14.7452],[-12.2239,14.703],[-12.1807,14.6929],[-12.1915,14.6743],[-12.1915,14.6557],[-12.1663,14.6422],[-12.1699,14.6169],[-12.1987,14.5882],[-12.2059,14.5544],[-12.2311,14.5375],[-12.2347,14.4987],[-12.2203,14.4345],[-12.2203,14.3906],[-12.1159,14.3552],[-12.1087,14.3416],[-12.1123,14.3298],[-12.1267,14.3248],[-12.1195,14.3112],[-12.0979,14.2876],[-12.0439,14.2657],[-11.9971,14.166],[-12.0043,14.1036],[-12.0259,14.0276],[-12.0259,13.9854],[-12.0007,13.9431],[-11.9611,13.9094],[-11.9611,13.83],[-11.9791,13.7844],[-12.0115,13.7506],[-12.0979,13.7051],[-12.0691,13.673],[-12.0367,13.5987],[-12.0151,13.5649],[-11.9323,13.4957],[-11.9251,13.4805],[-11.8891,13.4653],[-11.8819,13.4535],[-11.8999,13.3825],[-11.8963,13.3707],[-11.8531,13.3504],[-11.8459,13.3234],[-11.8279,13.3065],[-11.8,13.3243],[-11.8,12.3846],[-11.8603,12.3913],[-11.9215,12.4184],[-11.9323,12.4184],[-11.9971,12.3863],[-12.0799,12.4082],[-12.1051,12.4065],[-12.1915,12.3491],[-12.3607,12.3052],[-12.3787,12.3137],[-12.4039,12.3559],[-12.4219,12.3694],[-12.4651,12.3846],[-12.5047,12.3896],[-12.5767,12.3609],[-12.5947,12.3609],[-12.6019,12.3812],[-12.6307,12.4133],[-12.6667,12.4336],[-12.7747,12.4352],[-12.7819,12.4538],[-12.8395,12.4656],[-12.8503,12.4758],[-12.8503,12.4943],[-12.9115,12.5366],[-12.9511,12.5366],[-12.9691,12.4775],[-12.9799,12.4673],[-13.0519,12.4724],[-13.0663,12.4808],[-13.0843,12.5163],[-13.0591,12.5838],[-13.0627,12.6227],[-13.0771,12.6362],[-13.1275,12.6345],[-13.1455,12.6446],[-13.1563,12.6328],[-13.1707,12.6396],[-13.2031,12.6328],[-13.2211,12.648],[-13.2535,12.6412],[-13.2859,12.6531],[-13.3399,12.6396],[-13.4047,12.6615],[-13.7287,12.6733],[-15.194,12.6801],[-15.248,12.6632],[-15.3092,12.6227],[-15.3704,12.5957],[-15.4208,12.5568],[-15.6764,12.4386],[-15.7124,12.4319],[-15.8852,12.442],[-15.9716,12.4369],[-16.0544,12.4606],[-16.0904,12.4639],[-16.166,12.4521],[-16.1804,12.4437],[-16.2236,12.4555],[-16.4108,12.3609],[-16.4612,12.3609],[-16.5332,12.3474],[-16.67,12.3559],[-16.706,12.3474],[-16.7276,12.3322],[-16.7492,12.3863],[-16.7672,12.3964],[-16.7996,12.4302],[-16.7996,12.4943],[-16.7816,12.523],[-16.7312,12.5518],[-16.6772,12.5501],[-16.6448,12.5703],[-16.6196,12.6058],[-16.58,12.6328],[-16.562,12.6125],[-16.5476,12.5737],[-16.5332,12.5653],[-16.5332,12.5805],[-16.5224,12.5923],[-16.5044,12.5973],[-16.3892,12.5518],[-16.3712,12.5501],[-16.3496,12.5602],[-16.328,12.5889],[-16.31,12.5973],[-16.2452,12.5872],[-16.2128,12.6058],[-16.1912,12.5771],[-16.1156,12.6058],[-16.058,12.6159],[-16.0292,12.6328],[-16.0076,12.6328],[-15.9392,12.5805],[-15.8636,12.5771],[-15.8384,12.5568],[-15.806,12.5653],[-15.77,12.5923],[-15.7484,12.5838],[-15.7304,12.5923],[-15.716,12.5821],[-15.698,12.5838],[-15.68,12.5501],[-15.6656,12.5399],[-15.644,12.5366],[-15.5864,12.5585],[-15.5396,12.6159],[-15.5108,12.6362],[-15.5072,12.6497],[-15.5288,12.6666],[-15.5216,12.6733],[-15.5396,12.7274],[-15.5432,12.7578],[-15.536,12.7831],[-15.5216,12.7898],[-15.482,12.7898],[-15.4568,12.8033],[-15.446,12.8253],[-15.4244,12.805],[-15.4064,12.8],[-15.3956,12.8101],[-15.392,12.8388],[-15.4064,12.8219],[-15.4532,12.8321],[-15.4928,12.8067],[-15.5504,12.7949],[-15.554,12.7223],[-15.5432,12.6835],[-15.5432,12.6497],[-15.6404,12.5602],[-15.6512,12.5585],[-15.6728,12.5703],[-15.6656,12.6007],[-15.698,12.6142],[-15.7664,12.626],[-15.8348,12.5906],[-15.8492,12.6092],[-15.86,12.6125],[-15.9032,12.5973],[-15.914,12.6007],[-15.9536,12.626],[-15.9572,12.6463],[-15.9824,12.6531],[-16.0004,12.6868],[-16.0148,12.697],[-16.022,12.7291],[-16.0292,12.7291],[-16.0292,12.7172],[-16.0436,12.6902],[-16.0472,12.6564],[-16.076,12.6396],[-16.1192,12.6328],[-16.1552,12.6125],[-16.1912,12.6193],[-16.2272,12.6193],[-16.2704,12.6058],[-16.3136,12.6125],[-16.346,12.5973],[-16.3604,12.572],[-16.3712,12.5653],[-16.4468,12.5957],[-16.4684,12.6227],[-16.49,12.6311],[-16.4936,12.6497],[-16.4684,12.6666],[-16.4684,12.6733],[-16.4828,12.6733],[-16.4936,12.6818],[-16.5008,12.7071],[-16.508,12.626],[-16.5152,12.626],[-16.5656,12.6733],[-16.5692,12.6936],[-16.5836,12.6851],[-16.598,12.6632],[-16.616,12.6598],[-16.634,12.67],[-16.6376,12.6936],[-16.5908,12.7628],[-16.598,12.7966],[-16.6088,12.7544],[-16.6484,12.7189],[-16.6484,12.6328],[-16.6772,12.6193],[-16.7204,12.5838],[-16.7564,12.572],[-16.7744,12.5821],[-16.7816,12.6092],[-16.778,12.6784],[-16.76,12.7139],[-16.7348,12.7324],[-16.6988,12.7223],[-16.6988,12.7358],[-16.7132,12.7476],[-16.7348,12.751],[-16.7528,12.7459],[-16.7708,12.7206],[-16.7852,12.7122],[-16.796,12.7155],[-16.7888,12.724],[-16.7888,12.7409],[-16.796,12.7493],[-16.7744,12.778],[-16.7708,12.7932],[-16.7744,12.8101],[-16.7816,12.8101],[-16.7924,12.7949],[-16.7996,12.7983],[-16.8032,12.8135],[-16.796,12.8388],[-16.7564,12.903],[-16.7636,12.9519],[-16.7492,13.0144],[-16.7528,13.0887],[-16.7096,13.1563],[-16.6736,13.1647],[-15.8348,13.1563],[-15.8276,13.1613],[-15.8204,13.3336],[-15.6908,13.3606],[-15.5972,13.3555],[-15.518,13.3859],[-15.4892,13.3859],[-15.3776,13.3623],[-15.3416,13.3623],[-15.2768,13.3808],[-15.248,13.3994],[-15.2264,13.4247],[-15.2192,13.5142],[-15.2048,13.5362],[-15.1616,13.5818],[-15.1364,13.5902],[-15.014,13.4957],[-14.9491,13.4636],[-14.8771,13.4518],[-14.8303,13.4264],[-14.7907,13.418],[-14.7331,13.3589],[-14.6971,13.3454],[-14.6611,13.3403],[-14.5927,13.3538],[-14.5279,13.3065],[-14.4703,13.2981],[-14.4307,13.261],[-14.3695,13.2356],[-14.2831,13.239],[-14.2003,13.2289],[-14.1175,13.2829],[-14.0995,13.2812],[-14.0563,13.2964],[-14.0167,13.2981],[-13.9771,13.3082],[-13.9015,13.315],[-13.8511,13.3353],[-13.8223,13.3775],[-13.8187,13.4298],[-13.8439,13.4771],[-13.8835,13.5041],[-13.9015,13.5413],[-13.9411,13.5666],[-13.9879,13.5784],[-14.0347,13.5598],[-14.0923,13.5548],[-14.1391,13.5311],[-14.1967,13.5193],[-14.2723,13.4771],[-14.3479,13.4518],[-14.3659,13.4551],[-14.3911,13.4653],[-14.4811,13.5328],[-14.4991,13.5902],[-14.5423,13.6409],[-14.5855,13.6611],[-14.6251,13.6628],[-14.6683,13.6527],[-14.7403,13.6156],[-14.8015,13.6527],[-14.8303,13.7354],[-14.8807,13.781],[-14.9167,13.7929],[-15.0176,13.7962],[-15.0752,13.8182],[-15.0968,13.8199],[-15.1724,13.7945],[-15.2444,13.7473],[-15.266,13.7422],[-15.3056,13.781],[-15.3488,13.7895],[-15.3956,13.7709],[-15.4676,13.7084],[-15.4964,13.6476],[-15.5036,13.5885],[-15.518,13.5835],[-16.562,13.5868],[-16.5764,13.6122],[-16.5764,13.6409],[-16.508,13.6882],[-16.5296,13.7017],[-16.5152,13.7135],[-16.508,13.7405],[-16.5296,13.7422],[-16.526,13.727],[-16.5404,13.6932],[-16.5548,13.6949],[-16.562,13.673],[-16.598,13.6544],[-16.6196,13.6595],[-16.6412,13.6966],[-16.6304,13.7354],[-16.6304,13.7608],[-16.6196,13.7844],[-16.5764,13.8384],[-16.5476,13.8249],[-16.5548,13.8452],[-16.5224,13.852],[-16.5116,13.8131],[-16.5008,13.8013],[-16.4864,13.8047],[-16.5008,13.8722],[-16.5152,13.879],[-16.4864,14.0022],[-16.5188,13.9516],[-16.526,13.9111],[-16.5512,13.8688],[-16.5692,13.8722],[-16.58,13.8587],[-16.6376,13.8452],[-16.6484,13.8368],[-16.6628,13.8064],[-16.6772,13.7996],[-16.6988,13.7692],[-16.7096,13.7743],[-16.7168,13.8064],[-16.7384,13.8199],[-16.742,13.8604],[-16.7348,13.8722],[-16.7456,13.9026],[-16.7456,13.9516],[-16.7384,13.9685],[-16.7024,13.9904],[-16.6448,13.9837],[-16.6376,13.9752],[-16.6376,13.9617],[-16.598,13.9972],[-16.5764,13.9887],[-16.5764,14.0107],[-16.544,14.0377],[-16.5692,14.0309],[-16.5908,14.0428],[-16.544,14.0715],[-16.5044,14.1171],[-16.49,14.1289],[-16.4576,14.1373],[-16.4432,14.1559],[-16.4288,14.161],[-16.4036,14.1458],[-16.364,14.1677],[-16.4288,14.1694],[-16.454,14.1795],[-16.454,14.2015],[-16.4684,14.193],[-16.4756,14.1795],[-16.472,14.1643],[-16.4612,14.1542],[-16.472,14.1475],[-16.5116,14.1508],[-16.5548,14.0715],[-16.6016,14.0546],[-16.6304,14.0107],[-16.6556,14.0022],[-16.7204,14.0157],[-16.6952,14.0647],[-16.6808,14.0698],[-16.652,14.1002],[-16.6664,14.0951],[-16.6772,14.0765],[-16.688,14.0715],[-16.7132,14.0715],[-16.7276,14.0647],[-16.7168,14.0428],[-16.7384,14.0157],[-16.7384,14.0006],[-16.7636,13.9702],[-16.7744,13.933],[-16.7672,13.8384],[-16.7744,13.8384],[-16.7852,14.0597],[-16.8212,14.1441],[-16.8284,14.1542],[-16.8788,14.1745],[-16.9004,14.2606],[-16.9256,14.291],[-16.9472,14.3011],[-16.94,14.3552],[-16.9436,14.372],[-16.958,14.3906],[-16.9868,14.421],[-17.0588,14.4531],[-17.0696,14.4649],[-17.1128,14.5308],[-17.138,14.5983],[-17.1776,14.6523],[-17.2244,14.6912],[-17.282,14.7081],[-17.3252,14.7283],[-17.3288,14.7368],[-17.4188,14.7385],[-17.4404,14.7216],[-17.4188,14.7098],[-17.426,14.6946],[-17.4404,14.6878],[-17.426,14.6743],[-17.4404,14.654],[-17.5376,14.757],[-17.372,14.8009],[-17.3216,14.8398],[-17.174,14.9006],[-17.138,14.9276],[-16.8788,15.2332],[-16.7384,15.473],[-16.67,15.5625],[-16.5332,15.7837],[-16.544,15.809],[-16.5188,15.8462],[-16.508,16.01],[-16.472,16.1062],[-16.4648,16.1738],[-16.4576,16.194],[-16.4432,16.2058],[-16.4072,16.2143],[-16.3856,16.2345],[-16.3388,16.4152],[-16.3352,16.4557],[-16.328,16.4743],[-16.2956,16.5098],[-16.2524,16.5284],[-16.2056,16.5199],[-16.1336,16.5554],[-16.112,16.5469],[-16.0724,16.5047],[-16.0544,16.4963],[-16.0076,16.4963],[-15.986,16.5064],[-15.9572,16.498],[-15.896,16.5182],[-15.8636,16.5098],[-15.8132,16.5132],[-15.6728,16.4811],[-15.608,16.5216],[-15.5504,16.5148],[-15.5252,16.5216],[-15.4784,16.5756],[-15.464,16.5807],[-15.4496,16.5807],[-15.428,16.5537],[-15.3992,16.5486],[-15.3272,16.5723],[-15.248,16.5655],[-15.1256,16.5824],[-15.0968,16.5942],[-15.0932,16.601],[-15.1184,16.6432],[-15.1076,16.6651],[-15.0788,16.6651],[-15.0428,16.6314],[-15.0284,16.6347],[-15.0176,16.6466],[-15.0068,16.6753],[-14.9743,16.6921],[-14.9491,16.6719],[-14.9311,16.6432],[-14.9131,16.6398],[-14.8807,16.6482],[-14.7007,16.6364],[-14.6575,16.6466],[-14.6071,16.628],[-14.5459,16.6415],[-14.4811,16.633],[-14.4271,16.6601],[-14.4055,16.6601],[-14.3371,16.6314],[-14.3299,16.6246],[-14.3371,16.5942],[-14.3335,16.5858],[-14.2867,16.5858],[-14.2759,16.5739],[-14.2687,16.5486],[-14.2147,16.5351],[-14.0743,16.4],[-14.0383,16.3814],[-14.0167,16.3561],[-13.9771,16.3375],[-13.9699,16.324],[-13.9807,16.3004],[-13.9627,16.2717],[-13.9627,16.2295],[-13.8979,16.2058],[-13.8835,16.194],[-13.8655,16.1518],[-13.8367,16.1214],[-13.8259,16.118],[-13.7935,16.1315],[-13.7467,16.1822],[-13.7215,16.1906],[-13.7107,16.1889],[-13.7215,16.1467],[-13.7179,16.1349],[-13.6747,16.1062],[-13.4983,16.1569],[-13.4839,16.1552],[-13.5019,16.0944],[-13.4911,16.0876],[-13.4551,16.1028],[-13.4335,16.0961],[-13.4227,16.0775],[-13.3939,16.0589],[-13.3651,15.9745],[-13.3147,15.9306],[-13.3183,15.8884],[-13.2931,15.8546],[-13.2787,15.8225],[-13.2859,15.7702],[-13.2427,15.7364],[-13.2283,15.7111],[-13.2283,15.6959],[-13.2499,15.657],[-13.2391,15.6233],[-13.1779,15.6283],[-13.1095,15.5963],[-13.0879,15.5608],[-13.0951,15.5152],[-13.0843,15.4933],[-13.0375,15.4865],[-12.9943,15.5135],[-12.9799,15.5169],[-12.9655,15.5085],[-12.9547,15.4933],[-12.9475,15.4578],[-12.9295,15.4308],[-12.9295,15.397],[-12.9187,15.3649],[-12.8467,15.3126],[-12.8287,15.2839],[-12.8323,15.2704],[-12.8827,15.2704],[-12.8935,15.2636],[-12.8899,15.2501],[-12.8575,15.2214],[-12.8071,15.2231],[-12.7855,15.2146],[-12.7783,15.1994],[-12.7855,15.1657],[-12.7819,15.1488],[-12.7531,15.1387],[-12.7171,15.1032],[-12.6775,15.0931],[-12.6307,15.1049],[-12.6019,15.0796],[-12.5299,15.034],[-12.4831,15.0171],[-12.4723,14.9985],[-12.4471,14.9073],[-12.3823,14.8465],[-12.3211,14.8178],[-12.2635,14.7756]]]}},{"type":"Feature","properties":{"name":"Guinea-Bissau"},"geometry":{"type":"MultiPolygon","coordinates":[[[[-13.7287,12.6733],[-13.7359,12.5855],[-13.7251,12.5585],[-13.6747,12.496],[-13.6603,12.4589],[-13.6855,12.3913],[-13.6819,12.339],[-13.6927,12.3187],[-13.6963,12.2934],[-13.7107,12.2681],[-13.7395,12.2563],[-13.8079,12.2563],[-13.7971,12.2782],[-13.8115,12.2833],[-13.8403,12.2765],[-13.8835,12.2461],[-13.9447,12.2191],[-13.9663,12.1938],[-13.9735,12.1516],[-13.9375,12.1448],[-13.8979,12.1262],[-13.8799,12.1077],[-13.8367,12.0857],[-13.8367,12.0773],[-13.8079,12.0435],[-13.7359,12.0199],[-13.7251,12.003],[-13.7215,11.9844],[-13.7359,11.9016],[-13.7179,11.7666],[-13.7287,11.7092],[-13.7683,11.6889],[-13.7971,11.6838],[-13.8151,11.6872],[-13.8223,11.694],[-13.8187,11.7075],[-13.8439,11.7176],[-13.8475,11.7379],[-13.8691,11.7429],[-13.8691,11.7041],[-13.8871,11.6754],[-13.9051,11.6652],[-13.9231,11.6652],[-13.9447,11.6754],[-13.9951,11.6433],[-14.0167,11.6365],[-14.0599,11.6433],[-14.1175,11.6382],[-14.1355,11.6416],[-14.1715,11.6636],[-14.1967,11.6602],[-14.2903,11.6686],[-14.3083,11.6551],[-14.3263,11.6213],[-14.3607,11.6],[-15.3019,11.6],[-15.2948,11.6045],[-15.292,11.6],[-15.2536,11.6],[-15.2624,11.6095],[-15.2768,11.6112],[-15.2804,11.6247],[-15.2408,11.6112],[-15.2264,11.618],[-15.23,11.6],[-15.1981,11.6],[-15.212,11.6213],[-15.2048,11.6365],[-15.1868,11.6467],[-15.1472,11.6281],[-15.1436,11.6],[-15.1256,11.6045],[-15.1292,11.618],[-15.104,11.6129],[-15.0951,11.6],[-15.0097,11.6],[-15.0068,11.6112],[-15.0372,11.6],[-15.0796,11.6],[-15.0824,11.6129],[-15.0608,11.618],[-15.068,11.6332],[-15.0608,11.6467],[-15.0824,11.6433],[-15.0896,11.6332],[-15.0896,11.618],[-15.1112,11.6382],[-15.1256,11.6382],[-15.1256,11.6467],[-15.104,11.6669],[-15.1112,11.6872],[-15.1184,11.6872],[-15.1292,11.6534],[-15.1436,11.6501],[-15.1724,11.6602],[-15.1616,11.6754],[-15.1364,11.6889],[-15.1292,11.7075],[-15.1472,11.694],[-15.1724,11.7007],[-15.176,11.6838],[-15.194,11.6804],[-15.1904,11.6652],[-15.1976,11.6619],[-15.2084,11.6669],[-15.212,11.6804],[-15.2264,11.6585],[-15.2372,11.6636],[-15.23,11.6821],[-15.2084,11.694],[-15.2192,11.7075],[-15.212,11.7277],[-15.1868,11.721],[-15.1904,11.7362],[-15.2264,11.7547],[-15.2408,11.7125],[-15.2408,11.694],[-15.2588,11.6771],[-15.2732,11.6771],[-15.2624,11.7007],[-15.2732,11.7058],[-15.2768,11.7193],[-15.2696,11.748],[-15.284,11.7345],[-15.2876,11.7108],[-15.3236,11.7075],[-15.3092,11.7007],[-15.3092,11.694],[-15.2804,11.6703],[-15.284,11.6568],[-15.2948,11.6534],[-15.3092,11.6669],[-15.3236,11.6315],[-15.3308,11.6703],[-15.338,11.6838],[-15.3488,11.6804],[-15.3416,11.6669],[-15.356,11.6669],[-15.3488,11.6281],[-15.338,11.618],[-15.3416,11.6045],[-15.3596,11.6163],[-15.392,11.6602],[-15.3956,11.6416],[-15.3739,11.6],[-15.4112,11.6],[-15.4136,11.6112],[-15.4244,11.6],[-15.4657,11.6],[-15.464,11.6129],[-15.4532,11.6213],[-15.428,11.6703],[-15.428,11.694],[-15.4748,11.6551],[-15.4928,11.6669],[-15.4892,11.7075],[-15.5,11.7092],[-15.5396,11.6754],[-15.5504,11.7328],[-15.518,11.7919],[-15.482,11.8307],[-15.464,11.8392],[-15.4532,11.8729],[-15.4388,11.8848],[-15.4172,11.8713],[-15.41,11.8848],[-15.374,11.8848],[-15.3128,11.8713],[-15.1904,11.8713],[-15.1688,11.8898],[-15.1364,11.9],[-15.0896,11.9405],[-15.068,11.9405],[-15.068,11.905],[-15.086,11.8696],[-15.086,11.8459],[-15.068,11.8037],[-15.0032,11.7834],[-14.9815,11.7547],[-14.9599,11.7497],[-14.9347,11.7531],[-14.9239,11.7699],[-14.9527,11.7598],[-14.9959,11.8105],[-15.0248,11.8138],[-15.0464,11.824],[-15.0716,11.8611],[-15.0428,11.8966],[-15.0248,11.9506],[-14.9923,11.9574],[-14.9923,11.9641],[-15.0176,11.981],[-15.0464,11.9759],[-15.068,11.9861],[-15.0932,11.9844],[-15.1508,11.954],[-15.194,11.9135],[-15.2156,11.9101],[-15.3128,11.932],[-15.3596,11.9624],[-15.4028,11.9675],[-15.428,11.9607],[-15.4496,11.9422],[-15.4964,11.9371],[-15.5288,11.9067],[-15.554,11.8932],[-15.5936,11.8442],[-15.68,11.8037],[-15.7448,11.7919],[-15.8096,11.7531],[-15.8312,11.748],[-15.8096,11.829],[-15.7916,11.8628],[-15.734,11.8577],[-15.734,11.8645],[-15.752,11.8662],[-15.7772,11.8865],[-15.7952,11.8848],[-15.8132,11.8729],[-15.8168,11.8375],[-15.8492,11.775],[-15.86,11.7699],[-15.8816,11.775],[-15.8852,11.7868],[-15.878,11.824],[-15.896,11.8155],[-15.9068,11.7615],[-15.9608,11.7345],[-15.968,11.748],[-15.9644,11.7885],[-15.9464,11.824],[-15.932,11.8797],[-15.9248,11.8932],[-15.8996,11.9101],[-15.8924,11.9337],[-15.8564,11.981],[-15.8204,11.9979],[-15.7808,12.003],[-15.7592,11.9743],[-15.7196,11.9675],[-15.7052,12.008],[-15.7124,12.0165],[-15.7412,11.9945],[-15.7628,11.9945],[-15.7808,12.0165],[-15.8384,12.0131],[-15.8564,12.03],[-15.8636,12.03],[-15.8708,12.0131],[-15.8888,12.003],[-15.932,11.9945],[-15.9248,11.981],[-15.932,11.981],[-15.932,11.9743],[-15.9464,11.9844],[-15.9464,11.9523],[-15.968,11.927],[-16.0544,11.9202],[-16.094,11.9067],[-16.112,11.8881],[-16.1264,11.8848],[-16.1588,11.9135],[-16.184,11.9084],[-16.2164,11.9135],[-16.2416,11.9253],[-16.256,11.9371],[-16.274,11.981],[-16.3244,11.9945],[-16.3388,12.0165],[-16.346,12.0621],[-16.3568,12.0874],[-16.3568,12.1009],[-16.3316,12.16],[-16.3208,12.1718],[-16.2812,12.1938],[-16.2776,12.1735],[-16.2704,12.1718],[-16.2596,12.1803],[-16.2704,12.214],[-16.256,12.2309],[-16.148,12.29],[-16.1048,12.3373],[-16.0616,12.3508],[-16.0904,12.3525],[-16.1084,12.3441],[-16.1336,12.3137],[-16.1552,12.3002],[-16.2272,12.2833],[-16.2632,12.2613],[-16.3064,12.214],[-16.3244,12.2225],[-16.3172,12.2833],[-16.3352,12.2478],[-16.3388,12.2123],[-16.3496,12.1972],[-16.364,12.1921],[-16.3856,12.2005],[-16.3928,12.1938],[-16.4072,12.2073],[-16.4072,12.1938],[-16.4144,12.1887],[-16.4432,12.187],[-16.4576,12.1718],[-16.4648,12.1836],[-16.5008,12.1972],[-16.508,12.2174],[-16.5404,12.2563],[-16.5764,12.2833],[-16.6052,12.2765],[-16.6232,12.3035],[-16.6736,12.3373],[-16.7204,12.3238],[-16.7276,12.3322],[-16.706,12.3474],[-16.67,12.3559],[-16.5332,12.3474],[-16.4612,12.3609],[-16.4108,12.3609],[-16.2236,12.4555],[-16.1804,12.4437],[-16.166,12.4521],[-16.0904,12.4639],[-16.0544,12.4606],[-15.9716,12.4369],[-15.8852,12.442],[-15.7124,12.4319],[-15.6764,12.4386],[-15.4208,12.5568],[-15.3704,12.5957],[-15.3092,12.6227],[-15.248,12.6632],[-15.194,12.6801],[-13.7287,12.6733]]],[],[],[],[],[],[],[],[],[],[[[-15.9596,11.6],[-15.9536,11.6061],[-15.9392,11.6045],[-15.9392,11.6],[-15.9596,11.6]]],[[[-15.4748,11.6315],[-15.4748,11.618],[-15.4876,11.6],[-15.5533,11.6],[-15.5288,11.6247],[-15.5108,11.6197],[-15.4748,11.6315]]],[[[-16.166,11.8713],[-16.148,11.878],[-16.0796,11.8729],[-16.0364,11.8932],[-16.0364,11.9],[-15.9932,11.8983],[-15.986,11.8898],[-15.9896,11.8611],[-16.0148,11.824],[-16.022,11.7851],[-16.04,11.7547],[-16.0508,11.7615],[-16.0832,11.7547],[-16.0976,11.7632],[-16.1228,11.8003],[-16.1552,11.8071],[-16.166,11.8713]]]]}},{"type":"Feature","properties":{"name":"Mauritania"},"geometry":{"type":"MultiPolygon","coordinates":[[[[-11.8,17.2],[-11.8,15.3332],[-11.8171,15.2957],[-11.8279,15.2332],[-11.8459,15.1792],[-11.8459,15.1251],[-11.8603,15.0542],[-11.8495,15.0424],[-11.8315,15.0492],[-11.8135,15.0289],[-11.8099,15.0137],[-11.8315,14.9259],[-11.8207,14.9006],[-11.8387,14.8938],[-11.8531,14.8668],[-11.8783,14.8415],[-11.8963,14.8313],[-11.9359,14.8229],[-11.9899,14.7689],[-12.0115,14.7621],[-12.0511,14.7672],[-12.0691,14.7351],[-12.1375,14.7841],[-12.2023,14.7655],[-12.2455,14.7672],[-12.3211,14.8178],[-12.3823,14.8465],[-12.4471,14.9073],[-12.4723,14.9985],[-12.4831,15.0171],[-12.5299,15.034],[-12.6019,15.0796],[-12.6307,15.1049],[-12.6775,15.0931],[-12.7171,15.1032],[-12.7531,15.1387],[-12.7819,15.1488],[-12.7855,15.1657],[-12.7783,15.1994],[-12.7855,15.2146],[-12.8071,15.2231],[-12.8575,15.2214],[-12.8899,15.2501],[-12.8935,15.2636],[-12.8827,15.2704],[-12.8323,15.2704],[-12.8287,15.2839],[-12.8467,15.3126],[-12.9187,15.3649],[-12.9295,15.397],[-12.9295,15.4308],[-12.9511,15.4662],[-12.9583,15.5017],[-12.9799,15.5169],[-13.0123,15.5068],[-13.0375,15.4865],[-13.0843,15.4933],[-13.0951,15.5152],[-13.0879,15.5608],[-13.1095,15.5963],[-13.1779,15.6283],[-13.2391,15.6233],[-13.2499,15.657],[-13.2283,15.6959],[-13.2283,15.7111],[-13.2427,15.7364],[-13.2859,15.7702],[-13.2787,15.8225],[-13.2931,15.8546],[-13.3183,15.8884],[-13.3147,15.9306],[-13.3651,15.9745],[-13.3939,16.0589],[-13.4227,16.0775],[-13.4335,16.0961],[-13.4551,16.1028],[-13.4911,16.0876],[-13.5019,16.0944],[-13.4839,16.1552],[-13.4983,16.1569],[-13.6747,16.1062],[-13.7179,16.1349],[-13.7215,16.1467],[-13.7107,16.1889],[-13.7215,16.1906],[-13.7467,16.1822],[-13.7935,16.1315],[-13.8115,16.1214],[-13.8367,16.1214],[-13.8655,16.1518],[-13.8835,16.194],[-13.8979,16.2058],[-13.9627,16.2295],[-13.9627,16.2717],[-13.9807,16.3004],[-13.9699,16.324],[-13.9771,16.3375],[-14.0167,16.3561],[-14.0383,16.3814],[-14.0743,16.4],[-14.2147,16.5351],[-14.2687,16.5486],[-14.2759,16.5739],[-14.2867,16.5858],[-14.3335,16.5858],[-14.3371,16.5942],[-14.3299,16.6246],[-14.3371,16.6314],[-14.4055,16.6601],[-14.4271,16.6601],[-14.4811,16.633],[-14.5459,16.6415],[-14.6071,16.628],[-14.6575,16.6466],[-14.7007,16.6364],[-14.8807,16.6482],[-14.9131,16.6398],[-14.9311,16.6432],[-14.9491,16.6719],[-14.9743,16.6921],[-15.0068,16.6753],[-15.0176,16.6466],[-15.0284,16.6347],[-15.0428,16.6314],[-15.0788,16.6651],[-15.1076,16.6651],[-15.1184,16.6432],[-15.0932,16.601],[-15.0968,16.5942],[-15.1256,16.5824],[-15.248,16.5655],[-15.3272,16.5723],[-15.3992,16.5486],[-15.428,16.5537],[-15.4496,16.5807],[-15.464,16.5807],[-15.4784,16.5756],[-15.5252,16.5216],[-15.5504,16.5148],[-15.608,16.5216],[-15.6728,16.4811],[-15.8132,16.5132],[-15.8636,16.5098],[-15.896,16.5182],[-15.9572,16.498],[-15.986,16.5064],[-16.0076,16.4963],[-16.0544,16.4963],[-16.0724,16.5047],[-16.112,16.5469],[-16.1336,16.5554],[-16.2056,16.5199],[-16.2524,16.5284],[-16.274,16.5233],[-16.3136,16.4929],[-16.3352,16.4557],[-16.3388,16.4152],[-16.3856,16.2345],[-16.4072,16.2143],[-16.4432,16.2058],[-16.4576,16.194],[-16.472,16.1062],[-16.508,16.01],[-16.5188,15.8462],[-16.544,15.809],[-16.526,15.9779],[-16.5404,16.2666],[-16.5296,16.3325],[-16.4936,16.4017],[-16.4864,16.4524],[-16.4684,16.4929],[-16.4684,16.601],[-16.4576,16.6432],[-16.3784,16.8407],[-16.3568,16.8745],[-16.3424,16.9421],[-16.2776,17.04],[-16.2003,17.2],[-11.8,17.2]]],[],[],[],[]]}},{"type":"Feature","properties":{"name":"Gambia"},"geometry":{"type":"Polygon","coordinates":[[[-16.7528,13.0651],[-16.7672,13.0786],[-16.7852,13.0837],[-16.7744,13.1124],[-16.796,13.1765],[-16.796,13.2491],[-16.8212,13.2812],[-16.8248,13.2947],[-16.8176,13.3099],[-16.8284,13.3386],[-16.8104,13.3792],[-16.7636,13.4045],[-16.706,13.4754],[-16.6772,13.4957],[-16.6772,13.4855],[-16.652,13.4686],[-16.616,13.4788],[-16.5908,13.4619],[-16.5836,13.4433],[-16.6124,13.4399],[-16.6232,13.4264],[-16.5944,13.3859],[-16.5872,13.3555],[-16.5908,13.3386],[-16.5548,13.2964],[-16.5476,13.2897],[-16.4792,13.2846],[-16.4504,13.2643],[-16.418,13.2559],[-16.418,13.2086],[-16.4,13.2238],[-16.3892,13.2255],[-16.3784,13.2154],[-16.382,13.2255],[-16.4072,13.2458],[-16.4072,13.2593],[-16.4144,13.2677],[-16.4396,13.2694],[-16.4396,13.2762],[-16.3964,13.2778],[-16.3856,13.2846],[-16.3748,13.2643],[-16.3496,13.2829],[-16.3136,13.2947],[-16.2776,13.3201],[-16.2596,13.3251],[-16.2308,13.3167],[-16.2272,13.2559],[-16.2092,13.2508],[-16.184,13.2576],[-16.1516,13.2762],[-16.1516,13.2846],[-16.1732,13.2795],[-16.1984,13.2593],[-16.2092,13.3133],[-16.2236,13.3201],[-16.2272,13.3336],[-16.2164,13.3724],[-16.1696,13.4129],[-16.1624,13.4281],[-16.1336,13.4197],[-15.9932,13.4129],[-15.9428,13.4247],[-15.8924,13.4264],[-15.8708,13.4416],[-15.7628,13.4366],[-15.7052,13.4551],[-15.6692,13.4754],[-15.644,13.4585],[-15.6224,13.4551],[-15.59,13.4686],[-15.554,13.5092],[-15.5324,13.5058],[-15.5,13.4889],[-15.4712,13.4957],[-15.4496,13.4906],[-15.4172,13.4551],[-15.3848,13.4433],[-15.3416,13.4416],[-15.3056,13.4551],[-15.2948,13.4957],[-15.302,13.4957],[-15.3056,13.4805],[-15.3236,13.4585],[-15.3524,13.4568],[-15.4172,13.4737],[-15.464,13.5109],[-15.4892,13.5024],[-15.5576,13.5277],[-15.5756,13.5227],[-15.6116,13.4889],[-15.6728,13.5024],[-15.77,13.4653],[-16.0904,13.4399],[-16.1408,13.4551],[-16.1768,13.4416],[-16.274,13.3623],[-16.2884,13.3656],[-16.2884,13.4062],[-16.3064,13.391],[-16.3028,13.3724],[-16.3172,13.3656],[-16.3172,13.3589],[-16.3028,13.3521],[-16.3208,13.342],[-16.3892,13.3369],[-16.5224,13.3589],[-16.5008,13.4028],[-16.5188,13.4518],[-16.5548,13.4822],[-16.5476,13.5632],[-16.562,13.5868],[-15.518,13.5835],[-15.5036,13.5885],[-15.4964,13.6476],[-15.4676,13.7084],[-15.3956,13.7709],[-15.3488,13.7895],[-15.3056,13.781],[-15.266,13.7422],[-15.2444,13.7473],[-15.1724,13.7945],[-15.0968,13.8199],[-15.0752,13.8182],[-15.0176,13.7962],[-14.9167,13.7929],[-14.8807,13.781],[-14.8303,13.7354],[-14.7943,13.6443],[-14.7403,13.6156],[-14.6683,13.6527],[-14.6251,13.6628],[-14.5855,13.6611],[-14.5423,13.6409],[-14.5099,13.6088],[-14.4991,13.5902],[-14.4883,13.5463],[-14.4631,13.5159],[-14.3911,13.4653],[-14.3479,13.4518],[-14.2723,13.4771],[-14.1967,13.5193],[-14.1391,13.5311],[-14.0923,13.5548],[-14.0347,13.5598],[-14.0023,13.5767],[-13.9663,13.575],[-13.9411,13.5666],[-13.9015,13.5413],[-13.8835,13.5041],[-13.8439,13.4771],[-13.8187,13.4298],[-13.8223,13.3775],[-13.8511,13.3353],[-13.9015,13.315],[-13.9771,13.3082],[-14.0167,13.2981],[-14.0563,13.2964],[-14.0995,13.2812],[-14.1175,13.2829],[-14.2003,13.2289],[-14.2831,13.239],[-14.3695,13.2356],[-14.4307,13.261],[-14.4703,13.2981],[-14.5279,13.3065],[-14.5927,13.3538],[-14.6611,13.3403],[-14.6971,13.3454],[-14.7331,13.3589],[-14.7907,13.418],[-14.8303,13.4264],[-14.8771,13.4518],[-14.9491,13.4636],[-15.014,13.4957],[-15.1364,13.5902],[-15.1616,13.5818],[-15.2048,13.5362],[-15.2192,13.5142],[-15.2264,13.4247],[-15.248,13.3994],[-15.2768,13.3808],[-15.3416,13.3623],[-15.3776,13.3623],[-15.4892,13.3859],[-15.518,13.3859],[-15.5972,13.3555],[-15.6908,13.3606],[-15.8204,13.3336],[-15.8276,13.1613],[-15.8348,13.1563],[-16.6736,13.1647],[-16.7096,13.1563],[-16.7276,13.1225],[-16.7492,13.0989],[-16.7528,13.0651]]]}},{"type":"Feature","properties":{"name":"Cabo Verde"},"geometry":{"type":"MultiPolygon","coordinates":[[],[],[],[],[],[],[],[],[]]}}]},"zee":{"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon","coordinates":[[[[-20.1,11.6136],[-19.9897,11.2695],[-19.8623,10.9805],[-19.6616,10.6373],[-16.7238,12.3278],[-16.7492,12.3863],[-16.7996,12.4302],[-16.8032,12.4859],[-16.7816,12.523],[-16.7312,12.5518],[-16.6772,12.5501],[-16.58,12.6328],[-16.5332,12.5653],[-16.5332,12.5805],[-16.5044,12.5973],[-16.3712,12.5501],[-16.3,12.6097],[-16.346,12.5973],[-16.3712,12.5653],[-16.4108,12.5771],[-16.49,12.6311],[-16.4936,12.6497],[-16.4684,12.6733],[-16.4936,12.6818],[-16.5008,12.7071],[-16.508,12.626],[-16.5656,12.6733],[-16.5692,12.6936],[-16.598,12.6632],[-16.6268,12.6632],[-16.6376,12.6936],[-16.5908,12.7628],[-16.598,12.7966],[-16.6088,12.7544],[-16.6484,12.7189],[-16.6484,12.6328],[-16.7204,12.5838],[-16.7564,12.572],[-16.7744,12.5821],[-16.778,12.6784],[-16.76,12.7139],[-16.7348,12.7324],[-16.6988,12.7223],[-16.7132,12.7476],[-16.7348,12.751],[-16.796,12.7155],[-16.796,12.7493],[-16.7708,12.7932],[-16.7744,12.8101],[-16.7924,12.7949],[-16.8032,12.8135],[-16.7564,12.903],[-16.7506,13.06],[-20.1,13.06],[-20.1,11.6136]]],[[[-20.1,13.59],[-16.5642,13.59],[-16.5764,13.6409],[-16.508,13.6882],[-16.5296,13.7017],[-16.508,13.7405],[-16.5296,13.7422],[-16.5404,13.6932],[-16.598,13.6544],[-16.6196,13.6595],[-16.6412,13.6966],[-16.6304,13.7608],[-16.5764,13.8384],[-16.5476,13.8249],[-16.5548,13.8452],[-16.5224,13.852],[-16.5116,13.8131],[-16.4864,13.8047],[-16.5008,13.8722],[-16.5152,13.879],[-16.4864,14.0022],[-16.5512,13.8688],[-16.6376,13.8452],[-16.6988,13.7692],[-16.7384,13.8199],[-16.7456,13.9516],[-16.7024,13.9904],[-16.6448,13.9837],[-16.6376,13.9617],[-16.598,13.9972],[-16.5764,13.9887],[-16.5764,14.0107],[-16.544,14.0377],[-16.5908,14.0428],[-16.5044,14.1171],[-16.4432,14.1559],[-16.4036,14.1458],[-16.364,14.1677],[-16.4288,14.1694],[-16.454,14.1795],[-16.454,14.2015],[-16.4756,14.1795],[-16.4612,14.1542],[-16.5116,14.1508],[-16.5548,14.0715],[-16.6016,14.0546],[-16.6304,14.0107],[-16.6556,14.0022],[-16.7204,14.0157],[-16.6952,14.0647],[-16.652,14.1002],[-16.688,14.0715],[-16.7276,14.0647],[-16.7168,14.0428],[-16.7744,13.933],[-16.7744,13.8384],[-16.7852,14.0597],[-16.8212,14.1441],[-16.8788,14.1745],[-16.9004,14.2606],[-16.9472,14.3011],[-16.94,14.3552],[-16.958,14.3906],[-17.0696,14.4649],[-17.138,14.5983],[-17.2244,14.6912],[-17.3288,14.7368],[-17.4188,14.7385],[-17.4404,14.7216],[-17.4188,14.7098],[-17.4404,14.6878],[-17.426,14.6743],[-17.4404,14.654],[-17.5376,14.757],[-17.372,14.8009],[-17.3216,14.8398],[-17.174,14.9006],[-16.8788,15.2332],[-16.5332,15.7837],[-16.544,15.809],[-16.5298,16.07],[-20.1,16.07],[-20.1,13.59]]],[[[-16.705,12.33],[-16.6597,12.33],[-16.6736,12.3373],[-16.705,12.33]]]]}},"band12":{"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon","coordinates":[[[[-17.744,14.748],[-17.7328,14.6916],[-17.7055,14.6406],[-17.5968,14.5209],[-17.554,14.4872],[-17.4998,14.4627],[-17.4406,14.4543],[-17.3814,14.4626],[-17.3183,14.4932],[-17.2971,14.4408],[-17.2349,14.3453],[-17.1983,14.3059],[-17.1514,14.2748],[-17.1365,14.2219],[-17.116,14.1865],[-17.085,14.1527],[-17.0673,14.0936],[-17.0481,14.0605],[-16.9866,14.003],[-16.9784,13.812],[-16.9623,13.7569],[-16.9307,13.7085],[-16.8278,13.6111],[-16.8186,13.59],[-16.5642,13.59],[-16.5764,13.6122],[-16.5764,13.6409],[-16.508,13.6882],[-16.5296,13.7017],[-16.5152,13.7135],[-16.508,13.7405],[-16.5296,13.7422],[-16.526,13.727],[-16.5404,13.6932],[-16.5548,13.6949],[-16.562,13.673],[-16.598,13.6544],[-16.6196,13.6595],[-16.6412,13.6966],[-16.6304,13.7354],[-16.6304,13.7608],[-16.6196,13.7844],[-16.5764,13.8384],[-16.5476,13.8249],[-16.5548,13.8452],[-16.5224,13.852],[-16.5116,13.8131],[-16.5008,13.8013],[-16.4864,13.8047],[-16.5008,13.8722],[-16.5152,13.879],[-16.4864,14.0022],[-16.5188,13.9516],[-16.526,13.9111],[-16.5512,13.8688],[-16.5692,13.8722],[-16.58,13.8587],[-16.6376,13.8452],[-16.6484,13.8368],[-16.6628,13.8064],[-16.6772,13.7996],[-16.6988,13.7692],[-16.7096,13.7743],[-16.7168,13.8064],[-16.7384,13.8199],[-16.742,13.8604],[-16.7348,13.8722],[-16.7456,13.9026],[-16.7456,13.9516],[-16.7384,13.9685],[-16.7024,13.9904],[-16.6448,13.9837],[-16.6376,13.9752],[-16.6376,13.9617],[-16.598,13.9972],[-16.5764,13.9887],[-16.5764,14.0107],[-16.544,14.0377],[-16.5692,14.0309],[-16.5908,14.0428],[-16.544,14.0715],[-16.5044,14.1171],[-16.49,14.1289],[-16.4576,14.1373],[-16.4432,14.1559],[-16.4288,14.161],[-16.4036,14.1458],[-16.364,14.1677],[-16.4288,14.1694],[-16.454,14.1795],[-16.454,14.2015],[-16.4684,14.193],[-16.4756,14.1795],[-16.472,14.1643],[-16.4612,14.1542],[-16.472,14.1475],[-16.5116,14.1508],[-16.5548,14.0715],[-16.6016,14.0546],[-16.6304,14.0107],[-16.6556,14.0022],[-16.7204,14.0157],[-16.6952,14.0647],[-16.6808,14.0698],[-16.652,14.1002],[-16.6664,14.0951],[-16.6772,14.0765],[-16.688,14.0715],[-16.7132,14.0715],[-16.7276,14.0647],[-16.7168,14.0428],[-16.7384,14.0157],[-16.7384,14.0006],[-16.7636,13.9702],[-16.7744,13.933],[-16.7672,13.8384],[-16.7744,13.8384],[-16.7852,14.0597],[-16.8212,14.1441],[-16.8284,14.1542],[-16.8788,14.1745],[-16.9004,14.2606],[-16.9256,14.291],[-16.9472,14.3011],[-16.94,14.3552],[-16.9436,14.372],[-16.958,14.3906],[-16.9868,14.421],[-17.0588,14.4531],[-17.0696,14.4649],[-17.1128,14.5308],[-17.138,14.5983],[-17.1776,14.6523],[-17.2244,14.6912],[-17.282,14.7081],[-17.3252,14.7283],[-17.3288,14.7368],[-17.4188,14.7385],[-17.4404,14.7216],[-17.4188,14.7098],[-17.426,14.6946],[-17.4404,14.6878],[-17.426,14.6743],[-17.4404,14.654],[-17.5376,14.757],[-17.372,14.8009],[-17.3216,14.8398],[-17.174,14.9006],[-17.138,14.9276],[-16.8788,15.2332],[-16.7384,15.473],[-16.67,15.5625],[-16.5332,15.7837],[-16.544,15.809],[-16.526,15.9779],[-16.5298,16.07],[-16.7061,16.07],[-16.7141,16.0361],[-16.7191,15.9164],[-16.7438,15.8635],[-16.7511,15.8232],[-16.8433,15.6728],[-16.919,15.5712],[-17.049,15.3489],[-17.2814,15.0735],[-17.4196,15.0157],[-17.4677,14.9827],[-17.6295,14.936],[-17.6785,14.9033],[-17.7249,14.8414],[-17.7382,14.8052],[-17.744,14.748]]],[[[-17.0081,12.8092],[-17,12.6979],[-16.9864,12.6419],[-16.984,12.5803],[-17.0069,12.5054],[-17.0048,12.4098],[-16.9918,12.3616],[-16.9751,12.3275],[-16.9217,12.265],[-16.9006,12.226],[-16.7238,12.3278],[-16.7492,12.3863],[-16.7672,12.3964],[-16.7996,12.4302],[-16.8032,12.4859],[-16.7816,12.523],[-16.7312,12.5518],[-16.6772,12.5501],[-16.634,12.5788],[-16.6196,12.6058],[-16.58,12.6328],[-16.562,12.6125],[-16.5476,12.5737],[-16.5332,12.5653],[-16.5332,12.5805],[-16.5224,12.5923],[-16.5044,12.5973],[-16.3892,12.5518],[-16.3712,12.5501],[-16.3496,12.5602],[-16.328,12.5889],[-16.3,12.5973],[-16.3,12.6097],[-16.3244,12.6092],[-16.346,12.5973],[-16.3604,12.572],[-16.3712,12.5653],[-16.4468,12.5957],[-16.4684,12.6227],[-16.49,12.6311],[-16.4936,12.6497],[-16.4684,12.6666],[-16.4684,12.6733],[-16.4828,12.6733],[-16.4936,12.6818],[-16.5008,12.7071],[-16.508,12.626],[-16.5152,12.626],[-16.5656,12.6733],[-16.5692,12.6936],[-16.5836,12.6851],[-16.598,12.6632],[-16.6268,12.6632],[-16.634,12.67],[-16.6376,12.6936],[-16.5908,12.7628],[-16.598,12.7966],[-16.6088,12.7544],[-16.6484,12.7189],[-16.6484,12.6328],[-16.6772,12.6193],[-16.7204,12.5838],[-16.7564,12.572],[-16.7744,12.5821],[-16.7816,12.6092],[-16.778,12.6784],[-16.76,12.7139],[-16.7348,12.7324],[-16.6988,12.7223],[-16.6988,12.7358],[-16.7132,12.7476],[-16.7348,12.751],[-16.7528,12.7459],[-16.7708,12.7206],[-16.7852,12.7122],[-16.796,12.7155],[-16.7888,12.724],[-16.7888,12.7409],[-16.796,12.7493],[-16.7744,12.778],[-16.7708,12.7932],[-16.7744,12.8101],[-16.7816,12.8101],[-16.7924,12.7949],[-16.7996,12.7983],[-16.8032,12.8135],[-16.796,12.8388],[-16.7564,12.903],[-16.7636,12.9519],[-16.7492,13.0144],[-16.7506,13.06],[-16.9577,13.06],[-16.9553,13.0348],[-16.9684,12.9464],[-16.9944,12.8889],[-17.0081,12.8092]]],[[[-16.705,12.33],[-16.6597,12.33],[-16.6736,12.3373],[-16.705,12.33]]]]}},"band6":{"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon","coordinates":[[[[-17.6408,14.7526],[-17.6352,14.7243],[-17.6154,14.6913],[-17.5922,14.6716],[-17.524,14.5917],[-17.4795,14.5616],[-17.4405,14.5541],[-17.4014,14.5615],[-17.3577,14.5926],[-17.3371,14.6229],[-17.2747,14.6035],[-17.2563,14.587],[-17.2303,14.5516],[-17.2049,14.4858],[-17.1522,14.4051],[-17.1114,14.3671],[-17.0492,14.3388],[-17.0498,14.2909],[-17.0455,14.2711],[-17.0252,14.2358],[-16.9916,14.211],[-16.9792,14.1521],[-16.9686,14.1256],[-16.9435,14.0967],[-16.8982,14.0696],[-16.8843,14.0231],[-16.8764,13.8252],[-16.8586,13.7811],[-16.8384,13.7602],[-16.8081,13.7442],[-16.7806,13.702],[-16.7422,13.6787],[-16.7263,13.6341],[-16.6934,13.59],[-16.5642,13.59],[-16.5764,13.6122],[-16.5764,13.6409],[-16.508,13.6882],[-16.5296,13.7017],[-16.5152,13.7135],[-16.508,13.7287],[-16.508,13.7405],[-16.5296,13.7422],[-16.526,13.727],[-16.5404,13.6932],[-16.5548,13.6949],[-16.562,13.673],[-16.58,13.6595],[-16.598,13.6544],[-16.6196,13.6595],[-16.634,13.678],[-16.6412,13.6966],[-16.6304,13.7354],[-16.6304,13.7608],[-16.6196,13.7844],[-16.5764,13.8384],[-16.5476,13.8249],[-16.5548,13.8452],[-16.5224,13.852],[-16.5116,13.8131],[-16.5008,13.8013],[-16.4864,13.8047],[-16.5008,13.8722],[-16.5152,13.879],[-16.4864,14.0022],[-16.5188,13.9516],[-16.526,13.9111],[-16.5368,13.8857],[-16.5512,13.8688],[-16.5692,13.8722],[-16.58,13.8587],[-16.6376,13.8452],[-16.6484,13.8368],[-16.6628,13.8064],[-16.6772,13.7996],[-16.6988,13.7692],[-16.7096,13.7743],[-16.7168,13.8064],[-16.7384,13.8199],[-16.742,13.8604],[-16.7348,13.8722],[-16.7456,13.9026],[-16.7492,13.9347],[-16.7456,13.9516],[-16.7384,13.9685],[-16.7024,13.9904],[-16.6448,13.9837],[-16.6376,13.9752],[-16.6376,13.9617],[-16.6124,13.9887],[-16.598,13.9972],[-16.5764,13.9887],[-16.5764,14.0107],[-16.5692,14.0208],[-16.544,14.0377],[-16.5692,14.0309],[-16.58,14.0326],[-16.5908,14.0428],[-16.544,14.0715],[-16.5044,14.1171],[-16.49,14.1289],[-16.4576,14.1373],[-16.4432,14.1559],[-16.4288,14.161],[-16.4036,14.1458],[-16.364,14.1677],[-16.4288,14.1694],[-16.454,14.1795],[-16.454,14.2015],[-16.4684,14.193],[-16.4756,14.1795],[-16.472,14.1643],[-16.4612,14.1542],[-16.472,14.1475],[-16.5044,14.1542],[-16.5116,14.1508],[-16.5548,14.0715],[-16.6016,14.0546],[-16.6304,14.0107],[-16.6556,14.0022],[-16.7204,14.0157],[-16.6952,14.0647],[-16.6808,14.0698],[-16.652,14.1002],[-16.6664,14.0951],[-16.6772,14.0765],[-16.688,14.0715],[-16.7132,14.0715],[-16.7276,14.0647],[-16.7168,14.0512],[-16.7168,14.0428],[-16.7384,14.0157],[-16.7384,14.0006],[-16.7636,13.9702],[-16.7744,13.933],[-16.7672,13.8384],[-16.7744,13.8384],[-16.7852,14.0597],[-16.8212,14.1441],[-16.8284,14.1542],[-16.868,14.166],[-16.8788,14.1745],[-16.9004,14.2606],[-16.9256,14.291],[-16.9472,14.3011],[-16.9472,14.3248],[-16.94,14.3552],[-16.9436,14.372],[-16.958,14.3906],[-16.9868,14.421],[-17.0588,14.4531],[-17.0696,14.4649],[-17.1128,14.5308],[-17.138,14.5983],[-17.1776,14.6523],[-17.2244,14.6912],[-17.2424,14.6996],[-17.282,14.7081],[-17.3252,14.7283],[-17.3288,14.7368],[-17.4188,14.7385],[-17.4404,14.7216],[-17.4332,14.7131],[-17.4188,14.7098],[-17.426,14.6946],[-17.4404,14.6878],[-17.426,14.6743],[-17.4404,14.654],[-17.5196,14.7435],[-17.5376,14.757],[-17.372,14.8009],[-17.3216,14.8398],[-17.174,14.9006],[-17.138,14.9276],[-16.9796,15.1116],[-16.9472,15.1572],[-16.8788,15.2332],[-16.7384,15.473],[-16.67,15.5625],[-16.5332,15.7837],[-16.544,15.809],[-16.526,15.9779],[-16.5298,16.07],[-16.594,16.07],[-16.611,16.0231],[-16.6189,15.8814],[-16.6439,15.8363],[-16.647,15.7964],[-16.7566,15.6177],[-16.8287,15.5221],[-16.9639,15.2911],[-17.0254,15.2227],[-17.0623,15.1719],[-17.2104,14.9998],[-17.2269,14.9874],[-17.3705,14.9278],[-17.4198,14.8918],[-17.565,14.8534],[-17.5922,14.8418],[-17.6266,14.8078],[-17.6379,14.7812],[-17.6408,14.7526]]],[[[-16.9056,12.8114],[-16.8968,12.7667],[-16.898,12.7067],[-16.8825,12.6622],[-16.8836,12.6006],[-16.8757,12.5654],[-16.9035,12.5054],[-16.904,12.4267],[-16.8874,12.3789],[-16.8338,12.3206],[-16.8126,12.2767],[-16.7238,12.3278],[-16.7492,12.3863],[-16.7672,12.3964],[-16.7996,12.4302],[-16.8032,12.4859],[-16.7816,12.523],[-16.7312,12.5518],[-16.6772,12.5501],[-16.634,12.5788],[-16.6196,12.6058],[-16.58,12.6328],[-16.562,12.6125],[-16.5476,12.5737],[-16.5332,12.5653],[-16.5332,12.5805],[-16.5224,12.5923],[-16.5044,12.5973],[-16.4864,12.594],[-16.3892,12.5518],[-16.3712,12.5501],[-16.3496,12.5602],[-16.328,12.5889],[-16.3,12.5973],[-16.3,12.6097],[-16.3136,12.6125],[-16.3244,12.6092],[-16.346,12.5973],[-16.3604,12.572],[-16.3712,12.5653],[-16.4108,12.5771],[-16.4468,12.5957],[-16.4684,12.6227],[-16.49,12.6311],[-16.4936,12.6497],[-16.4864,12.6581],[-16.4684,12.6666],[-16.4684,12.6733],[-16.4828,12.6733],[-16.4936,12.6818],[-16.5008,12.7071],[-16.508,12.626],[-16.5152,12.626],[-16.5656,12.6733],[-16.5692,12.6936],[-16.5836,12.6851],[-16.598,12.6632],[-16.616,12.6598],[-16.6268,12.6632],[-16.634,12.67],[-16.6376,12.6936],[-16.5908,12.7628],[-16.598,12.7966],[-16.6016,12.7696],[-16.6088,12.7544],[-16.6484,12.7189],[-16.652,12.7054],[-16.6448,12.648],[-16.6484,12.6328],[-16.6772,12.6193],[-16.7204,12.5838],[-16.7564,12.572],[-16.7744,12.5821],[-16.7816,12.6092],[-16.778,12.6784],[-16.76,12.7139],[-16.7348,12.7324],[-16.6988,12.7223],[-16.6988,12.7358],[-16.7132,12.7476],[-16.7348,12.751],[-16.7528,12.7459],[-16.7708,12.7206],[-16.7852,12.7122],[-16.796,12.7155],[-16.7888,12.724],[-16.7888,12.7409],[-16.796,12.7493],[-16.7744,12.778],[-16.7708,12.7932],[-16.7744,12.8101],[-16.7816,12.8101],[-16.7924,12.7949],[-16.7996,12.7983],[-16.8032,12.8135],[-16.796,12.8388],[-16.76,12.8912],[-16.7564,12.903],[-16.7636,12.9519],[-16.7492,13.0144],[-16.7506,13.06],[-16.8551,13.06],[-16.8517,13.0266],[-16.8658,12.9598],[-16.8616,12.9227],[-16.8917,12.8745],[-16.9056,12.8114]]],[[[-16.705,12.33],[-16.6597,12.33],[-16.6736,12.3373],[-16.688,12.3373],[-16.705,12.33]]]]}},"gambia":{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-20.2,13.06],[-16.7506,13.06],[-16.7852,13.0837],[-16.7744,13.1124],[-16.796,13.1765],[-16.796,13.2491],[-16.8212,13.2812],[-16.8284,13.3386],[-16.8104,13.3792],[-16.7636,13.4045],[-16.706,13.4754],[-16.6772,13.4957],[-16.652,13.4686],[-16.6016,13.472],[-16.5836,13.4433],[-16.6232,13.4264],[-16.5944,13.3859],[-16.5908,13.3386],[-16.5476,13.2897],[-16.4792,13.2846],[-16.418,13.2559],[-16.418,13.2086],[-16.4,13.2238],[-16.3784,13.2154],[-16.4144,13.2677],[-16.4396,13.2762],[-16.3856,13.2846],[-16.3748,13.2643],[-16.3,13.3043],[-16.3,13.3963],[-16.3172,13.3656],[-16.3028,13.3521],[-16.3208,13.342],[-16.4108,13.3386],[-16.5224,13.3589],[-16.5008,13.4028],[-16.5188,13.4518],[-16.5548,13.4822],[-16.5476,13.5632],[-16.5642,13.59],[-20.2,13.59],[-20.2,13.06]]]}},"zeeAreaKm2":163325};
+</script>
+<script>// Outils géographiques : distances en milles nautiques, caps, déplacements,
+// appartenance d'un point à un polygone GeoJSON.
+(function () {
+  const R_NM = 3440.065; // rayon terrestre en milles nautiques
+  const rad = (d) => (d * Math.PI) / 180;
+  const deg = (r) => (r * 180) / Math.PI;
+
+  // Distance orthodromique entre deux points [lat, lon], en milles nautiques.
+  function distNm(a, b) {
+    const dLat = rad(b[0] - a[0]);
+    const dLon = rad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 +
+      Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  // Cap vrai (0 à 360°) de a vers b.
+  function bearing(a, b) {
+    const y = Math.sin(rad(b[1] - a[1])) * Math.cos(rad(b[0]));
+    const x = Math.cos(rad(a[0])) * Math.sin(rad(b[0])) -
+      Math.sin(rad(a[0])) * Math.cos(rad(b[0])) * Math.cos(rad(b[1] - a[1]));
+    return (deg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  // Point atteint depuis p en suivant un cap sur une distance (milles).
+  function move(p, brg, nm) {
+    const d = nm / R_NM;
+    const lat1 = rad(p[0]);
+    const lon1 = rad(p[1]);
+    const t = rad(brg);
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(t));
+    const lon2 = lon1 + Math.atan2(Math.sin(t) * Math.sin(d) * Math.cos(lat1),
+      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+    return [deg(lat2), deg(lon2)];
+  }
+
+  function inRing(lat, lon, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  function inPolygonCoords(lat, lon, poly) {
+    if (!poly || !poly[0] || !poly[0].length) return false;
+    if (!inRing(lat, lon, poly[0])) return false;
+    for (let k = 1; k < poly.length; k++) if (inRing(lat, lon, poly[k])) return false;
+    return true;
+  }
+
+  // p = [lat, lon] ; f = Feature ou géométrie GeoJSON (Polygon / MultiPolygon).
+  function inFeature(p, f) {
+    if (!f) return false;
+    const g = f.geometry || f;
+    if (g.type === 'Polygon') return inPolygonCoords(p[0], p[1], g.coordinates);
+    if (g.type === 'MultiPolygon') return g.coordinates.some((c) => inPolygonCoords(p[0], p[1], c));
+    return false;
+  }
+
+  function bboxOf(f) {
+    const g = f.geometry || f;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    let s = 90, n = -90, w = 180, e = -180;
+    polys.forEach((p) => p[0].forEach(([x, y]) => {
+      s = Math.min(s, y); n = Math.max(n, y); w = Math.min(w, x); e = Math.max(e, x);
+    }));
+    return { s, n, w, e };
+  }
+
+  // Générateur pseudo-aléatoire déterministe (mulberry32) pour des scénarios rejouables.
+  function rng(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function fmtPos(p) {
+    const f = (v, pos, neg) => {
+      const a = Math.abs(v);
+      const d = Math.floor(a);
+      const m = ((a - d) * 60).toFixed(1).padStart(4, '0');
+      return `${d}°${m}′ ${v >= 0 ? pos : neg}`;
+    };
+    return `${f(p[0], 'N', 'S')}  ${f(p[1], 'E', 'O')}`;
+  }
+
+  // Distance approximative à la côte (milles), à partir des sommets du trait de côte.
+  let coastPts = null;
+  function coastDist(p) {
+    if (!coastPts) {
+      coastPts = [];
+      const geo = window.DIAMBAR_GEO;
+      geo.land.features.forEach((f) => {
+        if (!['Senegal', 'Gambia', 'Mauritania', 'Guinea-Bissau'].includes(f.properties.name)) return;
+        const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+        polys.forEach((poly) => poly && poly[0] && poly[0].forEach(([x, y]) => { if (x < -16.3 && y > 11.8 && y < 16.8) coastPts.push([y, x]); }));
+      });
+    }
+    let m = 1e9;
+    for (let i = 0; i < coastPts.length; i++) {
+      const c = coastPts[i];
+      if (Math.abs(c[0] - p[0]) > 4 || Math.abs(c[1] - p[1]) > 4) continue;
+      const d = distNm(p, c);
+      if (d < m) m = d;
+    }
+    return m;
+  }
+
+  window.G = { distNm, bearing, move, inFeature, bboxOf, rng, fmtPos, coastDist };
+})();
+</script>
+<script>// Données de référence et scénario de démonstration.
+// TOUS LES NAVIRES, NUMÉROS OMI ET LISTES SONT FICTIFS (préfixe SIM).
+// Les positions des zones, aires marines et installations sont indicatives.
+(function () {
+  // Heure 0 de la simulation : mercredi 14 octobre 2026, 18 h 30 (heure de Dakar, UTC+0).
+  const START = Date.UTC(2026, 9, 14, 18, 30);
+  const END_MIN = 14 * 60 + 30; // fin : jeudi 15 octobre, 09 h 00
+  // Convertit "HH:MM" (jour 1 si >= 18:30, sinon jour 2) en minutes de simulation.
+  const T = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    let min = h * 60 + m - (18 * 60 + 30);
+    if (min < 0) min += 24 * 60;
+    return min;
+  };
+
+  const ports = [
+    { name: 'Dakar (base navale Amiral Faye Gassama)', pos: [14.672, -17.425] },
+    { name: 'Saint-Louis', pos: [16.02, -16.515] },
+    { name: 'Joal', pos: [14.162, -16.86] },
+    { name: 'Ziguinchor', pos: [12.58, -16.27] },
+  ];
+
+  // Aires marines protégées (positions et rayons indicatifs).
+  const amps = [
+    { name: 'AMP de Saint-Louis', pos: [15.93, -16.6], rNm: 4 },
+    { name: 'AMP de Kayar', pos: [14.94, -17.2], rNm: 4 },
+    { name: 'AMP de Joal-Fadiouth', pos: [14.12, -16.9], rNm: 3.5 },
+    { name: 'AMP d\'Abéné', pos: [12.98, -16.79], rNm: 3 },
+  ];
+
+  // Installations pétrolières et gazières en mer (zones de sécurité indicatives).
+  const offshore = [
+    { name: 'Hub gazier GTA (indicatif)', pos: [16.1, -17.12], rNm: 5 },
+    { name: 'Champ de Sangomar (indicatif)', pos: [13.95, -17.62], rNm: 5 },
+  ];
+
+  // Plages de départ de pirogues connues (surveillance satellite prioritaire).
+  const beaches = [
+    { name: 'Dionewar (îles du Saloum)', pos: [13.885, -16.735] },
+    { name: 'Djiffer', pos: [14.1, -16.755] },
+    { name: 'Mbour', pos: [14.41, -16.965] },
+    { name: 'Saint-Louis (Guet Ndar)', pos: [16.035, -16.508] },
+    { name: 'Kafountine', pos: [12.93, -16.755] },
+  ];
+
+  // Moyens de l'État et drones DIAMBAR.
+  const assets = [
+    { id: 'USV-01', name: 'DIAMBAR-01', type: 'usv', base: [14.672, -17.425], kn: 14, enduranceH: 36, detectLarge: 8, detectSmall: 3, identify: 1.2 },
+    { id: 'USV-02', name: 'DIAMBAR-02', type: 'usv', base: [14.162, -16.86], kn: 14, enduranceH: 36, detectLarge: 8, detectSmall: 3, identify: 1.2 },
+    { id: 'USV-03', name: 'DIAMBAR-03', type: 'usv', base: [16.02, -16.515], kn: 14, enduranceH: 36, detectLarge: 8, detectSmall: 3, identify: 1.2 },
+    { id: 'DRN-GN', name: 'Drone Gendarmerie', type: 'drone', base: [14.74, -17.49], kn: 75, enduranceH: 6, detectLarge: 10, detectSmall: 8, identify: 3 },
+    { id: 'DRN-AA', name: 'Drone Armée de l\'air', type: 'drone', base: [14.79, -16.93], kn: 80, enduranceH: 8, detectLarge: 10, detectSmall: 8, identify: 3 },
+    {
+      id: 'OPV-WALO', name: 'Walo (OPV)', type: 'opv', base: [14.672, -17.425], kn: 16, enduranceH: 1080, detectLarge: 20, detectSmall: 6, identify: 2,
+      patrol: [[14.95, -17.75], [14.55, -17.95], [14.3, -17.6], [14.75, -17.55]],
+    },
+    {
+      id: 'OPV-NIANI', name: 'Niani (OPV)', type: 'opv', base: [14.672, -17.425], kn: 16, enduranceH: 1080, detectLarge: 20, detectSmall: 6, identify: 2,
+      patrol: [[13.2, -17.25], [12.75, -17.15], [12.6, -17.55], [13.0, -17.6]], startAt: [13.2, -17.3],
+    },
+    { id: 'OPV-CAYOR', name: 'Cayor (OPV)', type: 'opv', base: [14.672, -17.425], kn: 16, enduranceH: 1080, detectLarge: 20, detectSmall: 6, identify: 2, maintenance: true },
+  ];
+
+  // Registre des navires autorisés (fourni par la DPSP dans la réalité).
+  const registry = [
+    { name: 'SIM HAI LONG 7', imo: 'SIM-8100417', flag: 'Sénégal', type: 'Chalutier pélagique', lengthM: 62, licence: 'Pêche pélagique hauturière', minNm: 12, vms: 'VMS-0417' },
+    { name: 'SIM MARLIN 3', imo: 'SIM-8100233', flag: 'Sénégal', type: 'Palangrier thonier', lengthM: 45, licence: 'Thonière, haute mer et ZEE', minNm: 12, vms: 'VMS-0233' },
+    { name: 'SIM CAP VERT 12', imo: 'SIM-8100612', flag: 'Sénégal', type: 'Chalutier démersal', lengthM: 38, licence: 'Démersale côtière', minNm: 12, vms: 'VMS-0612' },
+    { name: 'SIM NDAR', imo: 'SIM-8100101', flag: 'Sénégal', type: 'Chalutier pélagique', lengthM: 55, licence: 'Pêche pélagique hauturière', minNm: 12, vms: 'VMS-0101' },
+    { name: 'SIM GOREE', imo: 'SIM-8100102', flag: 'Sénégal', type: 'Senneur', lengthM: 48, licence: 'Pêche pélagique côtière', minNm: 12, vms: 'VMS-0102' },
+    { name: 'SIM SALOUM', imo: 'SIM-8100103', flag: 'Sénégal', type: 'Chalutier démersal', lengthM: 36, licence: 'Démersale côtière', minNm: 12, vms: 'VMS-0103' },
+    { name: 'SIM KAYAR', imo: 'SIM-8100104', flag: 'Sénégal', type: 'Palangrier', lengthM: 32, licence: 'Démersale profonde', minNm: 12, vms: 'VMS-0104' },
+    { name: 'SIM LOMPOUL', imo: 'SIM-8100105', flag: 'Sénégal', type: 'Chalutier pélagique', lengthM: 58, licence: 'Pêche pélagique hauturière', minNm: 12, vms: 'VMS-0105' },
+    { name: 'SIM SINE', imo: 'SIM-8100106', flag: 'Sénégal', type: 'Senneur', lengthM: 44, licence: 'Pêche pélagique côtière', minNm: 12, vms: 'VMS-0106' },
+  ];
+
+  // Liste fictive de navires inscrits sur des listes INN régionales.
+  const iuuList = [
+    { name: 'SIM ORIENT 66', imo: 'SIM-7700215', source: 'Liste INN ORGP (fictive)', since: 2011, note: 'Palangrier, a changé plusieurs fois de nom' },
+    { name: 'SIM BLUE HORIZON', imo: 'SIM-7700533', source: 'Liste INN ORGP (fictive)', since: 2020, note: 'Pêche sans autorisation en haute mer' },
+    { name: 'SIM MEGA 2', imo: 'SIM-7700076', source: 'Liste INN ORGP (fictive)', since: 2021, note: 'Navire sans nationalité' },
+  ];
+
+  // Passages satellites programmés (heures réalistes pour une orbite héliosynchrone).
+  const satPasses = [
+    { t: T('18:52'), sensor: 'radar', name: 'Sentinel-1 (radar, gratuit)' },
+    { t: T('06:48'), sensor: 'radar', name: 'Sentinel-1 (radar, gratuit)' },
+  ];
+
+  // Navires du scénario. "violations" = vérité terrain cachée à l'opérateur,
+  // utilisée seulement pour la vérification sur place et le mode formateur.
+  const scenario = [
+    {
+      id: 'hailong', name: 'SIM HAI LONG 7', imo: 'SIM-8100417', vmsId: 'VMS-0417', type: 'chalutier', cls: 'large', lengthM: 62,
+      hasAis: true, start: [15.6, -17.2], violations: ['AIS_OFF', 'ZONE_6', 'ZONE_LIC', 'VMS_SILENT'],
+      plan: [
+        { kind: 'loiter', until: T('20:30'), kn: 3.5, r: 3 },
+        { kind: 'goto', to: [15.9, -16.95], kn: 12 },
+        { kind: 'goto', to: [15.82, -16.635], kn: 10 },
+        { kind: 'loiter', until: T('02:30'), kn: 3, r: 1.6 },
+        { kind: 'goto', to: [15.7, -17.3], kn: 11 },
+        { kind: 'loiter', until: T('09:00'), kn: 3.5, r: 3 },
+      ],
+      events: [{ at: T('21:10'), set: { aisOn: false } }, { at: T('00:50'), set: { vmsOn: false } }, { at: T('03:50'), set: { aisOn: true, vmsOn: true } }],
+      story: 'Chalutier autorisé au-delà de 12 milles. Coupe son AIS en approchant de la côte, puis sa balise VMS, et chalute dans la bande des 6 milles réservée aux pirogues de Saint-Louis.',
+      observations: 'Chalut de fond à l\'eau à 4 milles de la côte. Nom et numéro OMI lisibles. Captures sur le pont.',
+    },
+    {
+      id: 'marlin', name: 'SIM MARLIN 3', imo: 'SIM-8100233', vmsId: 'VMS-0233', type: 'palangrier', cls: 'large', lengthM: 45,
+      hasAis: true, start: [14.3, -18.2], violations: ['LOITER_OFFSHORE', 'TRANSSHIP'],
+      plan: [
+        { kind: 'goto', to: [14.6, -18.95], kn: 10 },
+        { kind: 'hold', until: T('02:00') },
+        { kind: 'goto', to: [13.95, -18.6], kn: 9 },
+        { kind: 'loiter', until: T('09:00'), kn: 3, r: 4 },
+      ],
+      story: 'Palangrier autorisé qui retrouve un navire frigorifique sans licence en pleine mer pour lui transférer sa pêche hors de tout contrôle.',
+      observations: 'Deux navires amarrés bord à bord. Caisses de poisson transférées vers le frigorifique.',
+    },
+    {
+      id: 'polar', name: 'SIM POLAR STAR', imo: 'SIM-9300881', type: 'frigorifique', cls: 'large', lengthM: 92,
+      hasAis: true, aisOn: false, start: [15.3, -19.6], violations: ['DARK_LARGE', 'TRANSSHIP'],
+      plan: [
+        { kind: 'goto', to: [14.605, -18.955], kn: 11 },
+        { kind: 'hold', until: T('02:05') },
+        { kind: 'goto', to: [15.8, -20.4], kn: 12 },
+      ],
+      story: 'Navire frigorifique sans licence, AIS éteint, venu récupérer du poisson en mer.',
+      observations: 'Frigorifique de 90 m, AIS éteint, panneaux de nom masqués. Transbordement en cours.',
+    },
+    {
+      id: 'pirogue', name: 'Pirogue non immatriculée', type: 'pirogue', cls: 'small', lengthM: 22, persons: 140,
+      hasAis: false, start: [13.885, -16.735], gathering: true, violations: ['GATHER', 'DARK_SMALL', 'DISTRESS'],
+      plan: [
+        { kind: 'hold', until: T('22:15') },
+        { kind: 'goto', to: [14.2, -17.3], kn: 7, departure: true },
+        { kind: 'drift', until: T('09:00'), kn: 0.8, brg: 215, distress: true },
+      ],
+      events: [{ at: T('22:15'), set: { gathering: false } }],
+      story: 'Rassemblement sur la plage de Dionewar, départ de nuit vers les Canaries avec environ 140 personnes. Panne moteur au large vers 3 h 30.',
+      observations: 'Pirogue de 22 m, environ 140 personnes à bord dont des femmes et des enfants. Moteur à l\'arrêt, embarcation qui dérive. Besoin de secours immédiat.',
+    },
+    {
+      id: 'pecheurs', name: 'Pirogue de pêche FAMILLE NDOYE', type: 'pirogue', cls: 'small', lengthM: 18,
+      hasAis: false, start: [14.16, -16.87], violations: [],
+      plan: [
+        { kind: 'hold', until: T('04:00') },
+        { kind: 'goto', to: [14.05, -17.18], kn: 8 },
+        { kind: 'loiter', until: T('09:00'), kn: 2, r: 1.5 },
+      ],
+      story: 'Pirogue de pêche artisanale en règle, partie de Joal avant l\'aube. Fausse alerte possible si elle est détectée de nuit au large.',
+      observations: 'Pirogue de pêche avec 9 pêcheurs, filets maillants réglementaires, permis de pêche artisanale présenté.',
+      benign: 'Pirogue de pêche en règle partie de Joal. Aucune infraction.',
+    },
+    {
+      id: 'seagrace', name: 'SIM SEA GRACE', imo: 'SIM-7700215', type: 'palangrier', cls: 'large', lengthM: 48,
+      hasAis: true, start: [14.2, -18.1], violations: ['PORT_IUU'],
+      plan: [
+        { kind: 'hold', until: T('23:00') },
+        { kind: 'goto', to: [14.66, -17.45], kn: 9 },
+        { kind: 'hold', until: T('09:00'), drift: 0 },
+      ],
+      story: 'Palangrier inscrit sur une liste INN sous un ancien nom (SIM ORIENT 66). Il a changé de nom mais garde le même numéro OMI et demande à entrer au port de Dakar.',
+      observations: 'Numéro OMI SIM-7700215 lu sur la coque, identique à celui de SIM ORIENT 66 (liste INN). Thon congelé à bord.',
+      benign: 'Palangrier à l\'arrêt, en attente avant d\'entrer au port. Aucune activité de pêche observée sur ce point. Vérifier son identité au port.',
+    },
+    {
+      id: 'capvert', name: 'SIM CAP VERT 12', imo: 'SIM-8100612', vmsId: 'VMS-0612', type: 'chalutier', cls: 'large', lengthM: 38,
+      hasAis: true, start: [14.1, -17.55], violations: ['VMS_AIS_GAP', 'ZONE_6', 'ZONE_LIC'],
+      vmsGhost: { from: T('00:00'), center: [14.1, -17.55] },
+      plan: [
+        { kind: 'loiter', until: T('00:00'), kn: 3, r: 2 },
+        { kind: 'goto', to: [14.4, -17.06], kn: 10 },
+        { kind: 'loiter', until: T('05:30'), kn: 3, r: 1.2 },
+        { kind: 'goto', to: [14.1, -17.55], kn: 10 },
+        { kind: 'loiter', until: T('09:00'), kn: 3, r: 2 },
+      ],
+      story: 'Chalutier autorisé qui laisse sa balise VMS sur une pirogue d\'appui au large pendant qu\'il va chaluter dans la bande des 6 milles devant Mbour. Son AIS, resté allumé, le trahit.',
+      observations: 'Chalutier en pêche à moins de 5 milles de Mbour. Aucune balise VMS active à bord. La balise se trouve sur une pirogue d\'appui à 30 milles.',
+    },
+    {
+      id: 'atlantic', name: 'SIM ATLANTIC TRADER', imo: 'SIM-9400322', type: 'cargo', cls: 'large', lengthM: 180,
+      hasAis: true, start: [16.0, -18.25], violations: [],
+      plan: [{ kind: 'goto', to: [12.0, -18.45], kn: 13 }],
+      events: [{ at: T('01:00'), set: { aisOn: false } }, { at: T('05:10'), set: { aisOn: true } }],
+      story: 'Porte-conteneurs en route vers le sud. Panne de son transpondeur AIS pendant quatre heures. Fausse alerte.',
+      observations: 'Porte-conteneurs sur sa route habituelle. Le capitaine signale une panne du transpondeur AIS par VHF.',
+      benign: 'Panne technique du transpondeur, signalée par le capitaine. Aucune infraction.',
+    },
+    {
+      id: 'golden', name: 'SIM GOLDEN WAVE', imo: 'SIM-9700145', type: 'yacht', cls: 'large', lengthM: 26,
+      hasAis: true, start: [13.4, -19.5], violations: ['SPOOF', 'AIS_OFF', 'DARK_LARGE'],
+      spoof: { from: T('02:30'), to: T('03:30'), brg: 280, nm: 26 },
+      plan: [
+        { kind: 'goto', to: [14.0, -17.25], kn: 11 },
+        { kind: 'hold', until: T('09:00') },
+      ],
+      events: [{ at: T('03:30'), set: { aisOn: false } }],
+      story: 'Yacht qui transporte de la drogue vers la Petite-Côte. Il falsifie sa position AIS puis l\'éteint avant un rendez-vous près de la côte.',
+      observations: 'Yacht de 26 m, ballots suspects sur le pont arrière, aucune réponse aux appels VHF. Intervention de la Marine recommandée.',
+    },
+  ];
+
+  // Flotte de fond : pêche industrielle légale, cargos, pirogues artisanales.
+  function background(rand) {
+    const out = [];
+    const legal = ['SIM NDAR', 'SIM GOREE', 'SIM SALOUM', 'SIM KAYAR', 'SIM LOMPOUL', 'SIM SINE'];
+    const spots = [[15.3, -17.6], [14.95, -18.1], [14.4, -18.3], [13.8, -17.9], [12.8, -17.9], [15.7, -17.6]];
+    legal.forEach((n, i) => {
+      const r = registry.find((x) => x.name === n);
+      out.push({
+        id: 'bg-legal-' + i, name: n, imo: r.imo, vmsId: r.vms, type: r.type.startsWith('Senneur') ? 'senneur' : 'chalutier',
+        cls: 'large', lengthM: r.lengthM, hasAis: true, start: spots[i], violations: [],
+        plan: [{ kind: 'loiter', until: END_MIN, kn: 3 + rand() * 1.5, r: 4 }],
+        observations: 'Navire autorisé en pêche dans sa zone de licence.', benign: 'Navire autorisé, en règle.',
+      });
+    });
+    const lanes = [
+      [[16.05, -18.6], [12.1, -18.9]], [[12.1, -18.1], [16.05, -17.95]], [[16.05, -19.2], [12.2, -19.4]],
+      [[14.68, -17.43], [16.05, -18.1]], [[13.0, -18.4], [14.68, -17.43]], [[14.68, -17.43], [12.3, -18.0]],
+      [[15.5, -20.0], [14.68, -17.43]],
+    ];
+    const cargoNames = ['SIM RUFISQUE EXPRESS', 'SIM ATLAS BULK', 'SIM IVORY COAST', 'SIM HORIZON MAERSKA', 'SIM DAKAR LINE', 'SIM BISSAU STAR', 'SIM CANARIAS'];
+    lanes.forEach((l, i) => {
+      const f = rand();
+      const p = [l[0][0] + (l[1][0] - l[0][0]) * f * 0.6, l[0][1] + (l[1][1] - l[0][1]) * f * 0.6];
+      out.push({
+        id: 'bg-cargo-' + i, name: cargoNames[i], imo: 'SIM-95' + String(10000 + i * 731).slice(-5), type: 'cargo', cls: 'large',
+        lengthM: 120 + Math.round(rand() * 120), hasAis: true, start: p, violations: [],
+        plan: [{ kind: 'goto', to: l[1], kn: 11 + rand() * 4 }, { kind: 'hold', until: END_MIN }],
+        observations: 'Navire marchand en transit.', benign: 'Navire marchand en transit, en règle.',
+      });
+    });
+    const harbours = [[16.03, -16.58], [15.75, -16.66], [14.93, -17.2], [14.72, -17.5], [14.42, -17.03], [14.17, -16.93], [13.95, -16.83], [12.9, -16.8], [12.45, -16.8]];
+    for (let i = 0; i < 26; i++) {
+      const h = harbours[i % harbours.length];
+      const p = [h[0] + (rand() - 0.5) * 0.08, h[1] - rand() * 0.05];
+      out.push({
+        id: 'bg-pir-' + i, name: 'Pirogue de pêche', type: 'pirogue', cls: 'small', lengthM: 12 + Math.round(rand() * 8),
+        hasAis: false, start: p, violations: [], artisanal: true,
+        plan: [{ kind: 'loiter', until: END_MIN, kn: 2 + rand() * 2, r: 2 }],
+        observations: 'Pirogue de pêche artisanale en activité près de la côte.', benign: 'Pêche artisanale en règle.',
+      });
+    }
+    return out;
+  }
+
+  // Cas présentés dans le menu « Aller à ».
+  const cases = [
+    { id: 'gather', label: 'Rassemblement de pirogues au Saloum', t: T('19:00'), focus: [13.95, -16.85], zoom: 10 },
+    { id: 'hailong', label: 'Chalutier sombre devant Saint-Louis', t: T('21:50'), focus: [15.85, -16.85], zoom: 9 },
+    { id: 'marlin', label: 'Transbordement au large de Dakar', t: T('01:45'), focus: [14.6, -18.9], zoom: 10, prep: [{ rule: 'LOITER_OFFSHORE', asset: 'DRN-GN', purpose: 'verification' }] },
+    { id: 'capvert', label: 'Balise VMS déplacée devant Mbour', t: T('00:35'), focus: [14.25, -17.3], zoom: 9 },
+    { id: 'seagrace', label: 'Navire inscrit INN en approche de Dakar', t: T('01:15'), focus: [14.55, -17.65], zoom: 10 },
+    { id: 'atlantic', label: 'Panne AIS d\'un cargo (fausse alerte)', t: T('01:35'), focus: [14.6, -18.3], zoom: 8 },
+    { id: 'golden', label: 'Position AIS falsifiée (trafic)', t: T('02:35'), focus: [13.95, -18.2], zoom: 8 },
+    { id: 'distress', label: 'Pirogue en détresse', t: T('03:50'), focus: [14.15, -17.25], zoom: 10, prep: [{ rule: 'GATHER', asset: 'USV-02', purpose: 'suivi' }] },
+  ];
+
+  window.DIAMBAR_DATA = { START, END_MIN, T, ports, amps, offshore, beaches, assets, registry, iuuList, satPasses, scenario, background, cases };
+})();
+</script>
+<script>// Moteur de simulation : mouvement des navires (vérité terrain), capteurs,
+// déplacement des moyens. La plateforme (detect.js) ne voit que les rapports des capteurs.
+(function () {
+  const D = window.DIAMBAR_DATA;
+  const GEO = window.DIAMBAR_GEO;
+
+  function createWorld(opts) {
+    const rand = G.rng(20271014);
+    const ships = D.scenario.concat(D.background(rand)).map((s) => ({
+      ...s,
+      pos: s.start.slice(),
+      heading: 0,
+      sog: 0,
+      legIdx: 0,
+      legState: {},
+      aisOn: s.hasAis ? s.aisOn !== false : false,
+      vmsOn: !!s.vmsId,
+      gathering: !!s.gathering,
+      distress: false,
+      ghostPos: s.vmsGhost ? s.vmsGhost.center.slice() : null,
+      lastAisTx: -999,
+      lastVmsTx: -999 + Math.floor(rand() * 60),
+      history: [],
+      evIdx: 0,
+      rand: G.rng(Math.floor(rand() * 1e9)),
+    }));
+    const assets = D.assets.map((a) => ({
+      ...a,
+      pos: (a.startAt || a.base).slice(),
+      state: a.maintenance ? 'maintenance' : a.patrol ? 'patrouille' : 'base',
+      patrolIdx: 0,
+      task: null,
+      usedMin: 0,
+      heading: 0,
+      lastScan: -999,
+    }));
+    return {
+      t: 0,
+      ships,
+      assets,
+      rand,
+      opts: Object.assign({ srModel: false }, opts),
+      pendingSat: D.satPasses.map((p) => ({ ...p })),
+      reports: [], // file des rapports capteurs à consommer par la plateforme
+      log: [],
+    };
+  }
+
+  const isNight = (t) => {
+    const hm = ((18 * 60 + 30 + t) % 1440);
+    return hm >= 19 * 60 + 12 || hm < 7 * 60 + 14;
+  };
+
+  function stepShip(w, s, dt) {
+    while (s.evIdx < (s.events || []).length && s.events[s.evIdx].at <= w.t) {
+      Object.assign(s, s.events[s.evIdx].set);
+      s.evIdx++;
+    }
+    const leg = s.plan[s.legIdx];
+    if (!leg) { s.sog = 0; return; }
+    const st = s.legState;
+    let speed = 0;
+    if (leg.kind === 'goto') {
+      const d = G.distNm(s.pos, leg.to);
+      const brg = G.bearing(s.pos, leg.to);
+      const step = (leg.kn * dt) / 60;
+      if (d <= step) { s.pos = leg.to.slice(); nextLeg(s); } else { s.pos = G.move(s.pos, brg, step); s.heading = brg; }
+      speed = leg.kn;
+    } else if (leg.kind === 'loiter') {
+      if (!st.center) { st.center = s.pos.slice(); st.brg = s.rand() * 360; st.change = w.t + 15; }
+      if (w.t >= st.change) { st.brg = (st.brg + 120 + s.rand() * 120) % 360; st.change = w.t + 12 + s.rand() * 20; }
+      if (G.distNm(s.pos, st.center) > leg.r) st.brg = G.bearing(s.pos, st.center);
+      s.pos = G.move(s.pos, st.brg, (leg.kn * dt) / 60);
+      s.heading = st.brg; speed = leg.kn;
+      if (w.t >= leg.until) nextLeg(s);
+    } else if (leg.kind === 'hold') {
+      const drift = leg.drift !== undefined ? leg.drift : 0.3;
+      if (!st.brg) st.brg = 200;
+      s.pos = G.move(s.pos, st.brg, (drift * dt) / 60);
+      speed = s.gathering ? 0 : drift;
+      if (s.gathering) s.pos = s.start.slice();
+      if (w.t >= leg.until) nextLeg(s);
+    } else if (leg.kind === 'drift') {
+      if (leg.distress && !s.distress) { s.distress = true; w.log.push({ t: w.t, truth: true, text: `${s.name} : panne moteur, dérive.` }); }
+      s.pos = G.move(s.pos, leg.brg + (s.rand() - 0.5) * 30, (leg.kn * dt) / 60);
+      s.heading = leg.brg; speed = leg.kn;
+      if (w.t >= leg.until) nextLeg(s);
+    }
+    s.sog = speed;
+    if (s.ghostPos && w.t >= s.vmsGhost.from) {
+      s.ghostPos = G.move(s.ghostPos, (w.t * 37) % 360, (2.5 * dt) / 60);
+      if (G.distNm(s.ghostPos, s.vmsGhost.center) > 2) s.ghostPos = G.move(s.ghostPos, G.bearing(s.ghostPos, s.vmsGhost.center), 0.2);
+    }
+    if (!s.history.length || w.t - s.history[s.history.length - 1].t >= 10) {
+      s.history.push({ t: w.t, pos: s.pos.slice() });
+      if (s.history.length > 90) s.history.shift();
+    }
+  }
+
+  function nextLeg(s) { s.legIdx++; s.legState = {}; }
+
+  const offshoreNm = (p) => G.coastDist(p);
+
+  // ----- Capteurs -----
+  function sensors(w) {
+    w.ships.forEach((s) => {
+      // AIS : toutes les 4 min près des côtes, 12 min au large (AIS satellite).
+      if (s.hasAis && s.aisOn) {
+        const interval = offshoreNm(s.pos) > 20 ? 12 : 4;
+        if (w.t - s.lastAisTx >= interval) {
+          s.lastAisTx = w.t;
+          let p = s.pos;
+          if (s.spoof && w.t >= s.spoof.from && w.t < s.spoof.to) p = G.move(s.pos, s.spoof.brg, s.spoof.nm);
+          w.reports.push({ kind: 'ais', t: w.t, name: s.name, imo: s.imo, pos: p.slice(), sog: s.sog, cog: s.heading, lengthM: s.lengthM, shipType: s.type, _id: s.id });
+        }
+      }
+      // VMS : toutes les 60 min, vers la DPSP (partenariat).
+      if (s.vmsId && s.vmsOn && w.t - s.lastVmsTx >= 60) {
+        s.lastVmsTx = w.t;
+        const p = s.ghostPos && w.t >= s.vmsGhost.from ? s.ghostPos : s.pos;
+        w.reports.push({ kind: 'vms', t: w.t, vmsId: s.vmsId, pos: p.slice(), _id: s.id });
+      }
+    });
+
+    // Passages satellites.
+    w.pendingSat.forEach((p) => {
+      if (p.done || p.t > w.t) return;
+      p.done = true;
+      const dets = [];
+      w.ships.forEach((s) => {
+        const inZee = G.inFeature(s.pos, GEO.zee) || s.gathering;
+        if (!inZee) return;
+        if (p.area && G.distNm(s.pos, p.area) > 60) return; // emprise d'une acquisition commandée
+        if (s.artisanal) return; // pirogues de pêche près des côtes : filtrées par la plateforme (bruit côtier)
+        let pd;
+        if (s.cls === 'large') pd = p.sensor === 'radar' ? 0.95 : (isNight(w.t) ? 0 : 0.9);
+        else pd = p.sensor === 'radar' ? (w.opts.srModel ? 0.55 : 0.12) : (w.opts.srModel ? 0.75 : 0.3);
+        if (p.commercial) pd = Math.min(0.98, pd + (s.cls === 'small' ? 0.25 : 0.03));
+        if (s.gathering) pd = w.opts.srModel ? 0.9 : 0.15;
+        if (w.rand() < pd) {
+          const err = s.cls === 'small' ? 0.4 : 0.25;
+          dets.push({ pos: G.move(s.pos, w.rand() * 360, w.rand() * err), sizeEst: s.cls === 'large' ? Math.round(s.lengthM * (0.8 + w.rand() * 0.4)) : Math.round(s.lengthM * (0.7 + w.rand() * 0.6)), gathering: s.gathering, _id: s.id });
+        }
+      });
+      w.reports.push({ kind: 'sat', t: w.t, sensor: p.sensor, name: p.name, commercial: !!p.commercial, area: p.area || null, dets });
+    });
+
+    // Capteurs embarqués des moyens (radar, caméra optique et thermique).
+    w.assets.forEach((a) => {
+      if (a.state === 'base' || a.state === 'maintenance') return;
+      if (w.t - a.lastScan < 5) return;
+      a.lastScan = w.t;
+      const dets = [];
+      w.ships.forEach((s) => {
+        const d = G.distNm(a.pos, s.pos);
+        const range = s.cls === 'large' ? a.detectLarge : a.detectSmall;
+        if (d <= range && !(s.gathering && a.type !== 'drone')) {
+          dets.push({ pos: G.move(s.pos, w.rand() * 360, 0.1), identified: d <= a.identify, name: d <= a.identify ? s.name : null, imo: d <= a.identify ? s.imo : null, sizeEst: s.lengthM, cls: s.cls, distress: s.distress && d <= a.identify, gathering: s.gathering, _id: s.id });
+        }
+      });
+      w.reports.push({ kind: 'asset', t: w.t, assetId: a.id, assetName: a.name, dets });
+    });
+  }
+
+  // ----- Moyens -----
+  function stepAsset(w, a, dt) {
+    if (a.state === 'maintenance') return;
+    const go = (target, kn) => {
+      const d = G.distNm(a.pos, target);
+      const step = (kn * dt) / 60;
+      if (d <= step) { a.pos = target.slice(); return true; }
+      a.heading = G.bearing(a.pos, target);
+      a.pos = G.move(a.pos, a.heading, step);
+      return false;
+    };
+    if (a.state !== 'base') a.usedMin += dt;
+    if (a.state === 'patrouille' && a.patrol) {
+      if (go(a.patrol[a.patrolIdx], 12)) a.patrolIdx = (a.patrolIdx + 1) % a.patrol.length;
+    } else if (a.state === 'transit' || a.state === 'surveillance' || a.state === 'recherche') {
+      const task = a.task;
+      if (!task) { a.state = 'retour'; return; }
+      const truth = w.ships.find((s) => s.id === task.truthId);
+      // Si la cible réelle est dans la portée des capteurs, le moyen la poursuit.
+      const range = truth ? (truth.cls === 'large' ? a.detectLarge : a.detectSmall) : 0;
+      if (truth && G.distNm(a.pos, truth.pos) <= range) {
+        task.acquired = true;
+        if (G.distNm(a.pos, truth.pos) <= a.identify * 0.8) {
+          a.state = 'surveillance';
+          if (!task.arrivedAt) task.arrivedAt = w.t;
+          go(G.move(truth.pos, (w.t * 12) % 360, a.identify * 0.5), a.kn * 0.4);
+        } else {
+          a.state = 'transit';
+          go(truth.pos, a.kn);
+        }
+      } else {
+        task.acquired = false;
+        if (a.state !== 'recherche') {
+          if (go(task.estimate, a.kn)) { a.state = 'recherche'; task.searchStart = w.t; }
+        } else {
+          // Recherche en spirale autour de la dernière position connue.
+          const k = (w.t - task.searchStart) / 6;
+          const p = G.move(task.estimate, (k * 70) % 360, Math.min(10, 0.6 + k * 0.5));
+          go(p, a.kn);
+          if (w.t - task.searchStart > 70) task.lost = true;
+        }
+      }
+      if (a.usedMin / 60 > a.enduranceH * 0.85) task.lowEnergy = true;
+    } else if (a.state === 'retour') {
+      const home = a.patrol ? a.patrol[0] : a.base;
+      if (go(home, a.kn)) { a.state = a.patrol ? 'patrouille' : 'base'; a.task = null; if (!a.patrol) a.usedMin = 0; }
+    }
+  }
+
+  function step(w, dt) {
+    w.t += dt;
+    w.ships.forEach((s) => stepShip(w, s, dt));
+    w.assets.forEach((a) => stepAsset(w, a, dt));
+    sensors(w);
+  }
+
+  function orderSat(w, sensor, area) {
+    const delay = sensor === 'radar' ? 50 : 35;
+    const p = { t: w.t + delay, sensor, commercial: true, area, name: sensor === 'radar' ? 'Acquisition radar commerciale' : 'Acquisition optique commerciale' };
+    w.pendingSat.push(p);
+    return p;
+  }
+
+  window.SIM = { createWorld, step, orderSat, isNight, offshoreNm };
+})();
+</script>
+<script>// Plateforme DIAMBAR : fusion des rapports capteurs, règles de détection,
+// score de risque, apprentissage par retour de vérification, chaîne de preuve.
+(function () {
+  const D = window.DIAMBAR_DATA;
+  const GEO = window.DIAMBAR_GEO;
+  const DAKAR = D.ports[0].pos;
+
+  const RULES = {
+    AIS_OFF: { label: 'Transpondeur AIS coupé', base: 50, prior: [3, 2] },
+    VMS_SILENT: { label: 'Balise VMS silencieuse', base: 55, prior: [3, 2] },
+    VMS_AIS_GAP: { label: 'Écart entre positions VMS et AIS', base: 76, prior: [4, 1] },
+    ZONE_6: { label: 'Navire industriel dans la bande des 6 milles', base: 72, prior: [4, 1] },
+    ZONE_LIC: { label: 'Hors de la zone autorisée par la licence', base: 56, prior: [3, 2] },
+    AMP: { label: 'Intrusion dans une aire marine protégée', base: 70, prior: [3, 1] },
+    NO_LICENCE: { label: 'Navire de pêche sans licence', base: 70, prior: [3, 1] },
+    LOITER_OFFSHORE: { label: 'Arrêt prolongé en pleine mer', base: 44, prior: [2, 2] },
+    TRANSSHIP: { label: 'Transbordement présumé en mer', base: 78, prior: [4, 1] },
+    DARK_LARGE: { label: 'Navire non identifié (sans AIS)', base: 62, prior: [3, 2] },
+    DARK_SMALL: { label: 'Embarcation non identifiée au large', base: 56, prior: [2, 2] },
+    SPOOF: { label: 'Position AIS falsifiée', base: 68, prior: [3, 1] },
+    PORT_IUU: { label: 'Navire inscrit sur une liste INN en approche du port', base: 92, prior: [5, 1] },
+    DISTRESS: { label: 'Embarcation en détresse', base: 96, prior: [6, 1] },
+    GATHER: { label: 'Rassemblement de pirogues sur une plage de départ', base: 52, prior: [2, 2] },
+  };
+
+  const FISHING = ['chalutier', 'palangrier', 'senneur'];
+  const regByImo = Object.fromEntries(D.registry.map((r) => [r.imo, r]));
+  const regByVms = Object.fromEntries(D.registry.map((r) => [r.vms, r]));
+  const iuuByImo = Object.fromEntries(D.iuuList.map((r) => [r.imo, r]));
+
+  function createPlatform() {
+    const learn = {};
+    Object.entries(RULES).forEach(([k, r]) => { learn[k] = { a: r.prior[0], b: r.prior[1], n: 0, ok: 0 }; });
+    return { tracks: new Map(), alerts: [], learn, journal: [], unknown: 0, alertSeq: 0, lastEval: -999, ingested: 0 };
+  }
+
+  function journal(P, t, type, text) { P.journal.unshift({ t, type, text }); if (P.journal.length > 400) P.journal.pop(); }
+
+  function track(P, key, init) {
+    let tr = P.tracks.get(key);
+    if (!tr) { tr = Object.assign({ id: key, hist: [], sources: new Set() }, init); P.tracks.set(key, tr); }
+    return tr;
+  }
+
+  function setPos(tr, t, pos, src) {
+    if (tr.lastT !== undefined && t < tr.lastT) return;
+    tr.lastPos = pos.slice(); tr.lastT = t; tr.sources.add(src);
+    tr.hist.push({ t, pos: pos.slice(), src });
+    if (tr.hist.length > 60) tr.hist.shift();
+  }
+
+  function newUnknown(P, det, t, src) {
+    P.unknown++;
+    const id = 'C-' + String(P.unknown).padStart(3, '0');
+    const cls = det.cls || (det.sizeEst >= 24 ? 'large' : 'small');
+    const tr = track(P, id, { label: `Contact inconnu ${id}`, unknown: true, cls, sizeEst: det.sizeEst, _id: det._id, firstT: t });
+    setPos(tr, t, det.pos, src);
+    return tr;
+  }
+
+  // Associe une détection non identifiée à une piste existante proche.
+  function correlate(P, det, t) {
+    let best = null; let bestD = 1e9;
+    P.tracks.forEach((tr) => {
+      if (!tr.lastPos || t - tr.lastT > (tr.unknown ? 150 : 240)) return;
+      const age = (t - tr.lastT) / 60;
+      const gate = tr.unknown ? Math.min(2 + Math.max(tr.sog || 0, 12) * age, 8) : 2.5 + (tr.sog || 0) * age;
+      const d = G.distNm(tr.lastPos, det.pos);
+      const sizeOk = !tr.cls || !det.sizeEst || (tr.cls === 'large') === (det.sizeEst >= 24);
+      if (d < gate && d < bestD && sizeOk) { best = tr; bestD = d; }
+    });
+    return best;
+  }
+
+  function ingest(P, r) {
+    P.ingested++;
+    if (r.kind === 'ais') {
+      const tr = track(P, 'imo:' + r.imo, { label: r.name, imo: r.imo, shipType: r.shipType, lengthM: r.lengthM, cls: r.lengthM >= 24 ? 'large' : 'small', _id: r._id });
+      if (tr.lastAis) {
+        const dt = (r.t - tr.lastAis.t) / 60;
+        const v = dt > 0 ? G.distNm(tr.lastAis.pos, r.pos) / dt : 0;
+        if (dt > 0 && v > 35) { tr.spoofAt = r.t; if (!tr.credible || r.t - tr.credible.t > 120) tr.credible = { t: tr.lastAis.t, pos: tr.lastAis.pos, cog: tr.cog, sog: tr.sog }; }
+      }
+      tr.aisCount = (tr.aisCount || 0) + 1;
+      tr.lastAis = { t: r.t, pos: r.pos };
+      tr.sog = r.sog; tr.cog = r.cog; tr.label = r.name;
+      tr.sogHist = (tr.sogHist || []).concat({ t: r.t, sog: r.sog }).slice(-40);
+      setPos(tr, r.t, r.pos, 'AIS');
+    } else if (r.kind === 'vms') {
+      const reg = regByVms[r.vmsId];
+      if (!reg) return;
+      const tr = track(P, 'imo:' + reg.imo, { label: reg.name, imo: reg.imo, shipType: 'chalutier', lengthM: reg.lengthM, cls: 'large', _id: r._id });
+      if (tr.lastVms && (!tr.lastAis || r.t - tr.lastAis.t > 30) && r.t > tr.lastVms.t) {
+        tr.sog = G.distNm(tr.lastVms.pos, r.pos) / ((r.t - tr.lastVms.t) / 60);
+        tr.cog = G.bearing(tr.lastVms.pos, r.pos);
+      }
+      tr.lastVms = { t: r.t, pos: r.pos };
+      if (!tr.lastAis || r.t - tr.lastAis.t > 30) setPos(tr, r.t, r.pos, 'VMS');
+      tr.sources.add('VMS');
+    } else if (r.kind === 'sat') {
+      let matched = 0; let fresh = 0; let gathers = 0;
+      r.dets.forEach((det) => {
+        if (det.gathering) {
+          gathers++;
+          const tr = track(P, 'gather:' + det._id, { label: 'Rassemblement de pirogues', unknown: true, cls: 'small', gather: true, _id: det._id });
+          setPos(tr, r.t, det.pos, 'Satellite');
+          tr.gatherSeen = r.t;
+          return;
+        }
+        const tr = correlate(P, det, r.t);
+        if (tr) { matched++; setPos(tr, r.t, det.pos, 'Satellite'); if (tr.unknown) tr.sizeEst = det.sizeEst; tr.satSeen = r.t; } else { fresh++; const u = newUnknown(P, det, r.t, 'Satellite'); u.satSeen = r.t; }
+      });
+      journal(P, r.t, 'sat', `${r.name} : ${r.dets.length} détections, ${matched} associées à des navires connus, ${fresh} nouveaux contacts${gathers ? `, ${gathers} rassemblement sur plage` : ''}.`);
+    } else if (r.kind === 'asset') {
+      r.dets.forEach((det) => {
+        let tr = null;
+        if (det.identified && det.imo) {
+          tr = P.tracks.get('imo:' + det.imo) || [...P.tracks.values()].find((x) => x.imo === det.imo);
+          if (!tr) {
+            // Un contact inconnu correspondant prend son identité.
+            tr = correlate(P, det, r.t);
+            if (tr && tr.unknown && !tr.gather) {
+              tr.label = `${det.name} (identifié)`; tr.imo = det.imo; tr.unknown = false; tr.identifiedBy = r.assetName;
+            } else {
+              tr = track(P, 'imo:' + det.imo, { label: det.name, imo: det.imo, cls: det.cls, lengthM: det.sizeEst, _id: det._id, identifiedBy: r.assetName });
+            }
+          }
+        } else if (det.gathering) {
+          tr = track(P, 'gather:' + det._id, { label: 'Rassemblement de pirogues', unknown: true, cls: 'small', gather: true, _id: det._id });
+          tr.gatherSeen = r.t;
+        } else {
+          tr = correlate(P, det, r.t) || newUnknown(P, det, r.t, r.assetName);
+          if (tr.gather) { tr.gather = false; tr.label = 'Pirogue partie de la plage'; tr.visual = true; tr.departedSeen = r.t; }
+        }
+        if (det.identified && !det.imo && tr.unknown && !tr.gather) { tr.label = tr.label.replace('Contact inconnu', 'Embarcation'); tr.visual = true; }
+        if (tr.lastT !== undefined && r.t - tr.lastT >= 1 && tr.lastPos) {
+          const v = G.distNm(tr.lastPos, det.pos) / ((r.t - tr.lastT) / 60);
+          if (!tr.lastAis || r.t - tr.lastAis.t > 20) tr.sog = v;
+        }
+        if (det.identified) tr._id = det._id; // observation visuelle directe
+        setPos(tr, r.t, det.pos, r.assetName);
+        if (det.distress) tr.distress = r.t;
+        tr.assetSeen = r.t;
+      });
+    }
+  }
+
+  // ----- Règles -----
+  const inBand6 = (p) => G.inFeature(p, GEO.band6);
+  const inBand12 = (p) => G.inFeature(p, GEO.band12);
+  const inZee = (p) => G.inFeature(p, GEO.zee);
+  const nearCoast = (p, nm) => G.coastDist(p) <= nm;
+
+  function raise(P, w, rule, tr, factors, extra) {
+    const key = rule + ':' + tr.id;
+    let al = P.alerts.find((a) => a.key === key);
+    const raw = RULES[rule].base + factors.reduce((s, f) => s + f.pts, 0);
+    const L = P.learn[rule];
+    const p = L.a / (L.a + L.b);
+    const score = Math.max(5, Math.min(100, Math.round(raw * (0.75 + 0.5 * p))));
+    if (al) {
+      if (al.closed) return al;
+      al.pos = tr.lastPos.slice(); al.updated = w.t; al.factors = factors; al.score = score; al.raw = raw;
+      return al;
+    }
+    const ship = w.ships.find((s) => s.id === tr._id);
+    P.alertSeq++;
+    al = {
+      id: 'A-' + String(P.alertSeq).padStart(3, '0'), key, rule, title: RULES[rule].label, trackId: tr.id, label: tr.label,
+      pos: tr.lastPos.slice(), created: w.t, updated: w.t, factors, raw, score, status: 'nouvelle',
+      truthId: tr._id, truthPositive: ship ? (ship.violations || []).includes(rule) : false, ...extra,
+    };
+    P.alerts.push(al);
+    journal(P, w.t, 'alert', `${al.id} ${al.title} : ${al.label} (score ${al.score}).`);
+    return al;
+  }
+
+  function evaluate(P, w) {
+    if (w.t - P.lastEval < 5) return;
+    P.lastEval = w.t;
+    const night = SIM.isNight(w.t);
+    P.tracks.forEach((tr) => {
+      if (!tr.lastPos) return;
+      const pos = tr.lastPos;
+      const age = w.t - tr.lastT;
+      const reg = tr.imo ? regByImo[tr.imo] : null;
+      const fishing = FISHING.includes(tr.shipType) || (reg && true);
+
+      // AIS coupé
+      if (tr.lastAis && tr.aisCount >= 3 && w.t - tr.lastAis.t > 35 && inZee(tr.lastAis.pos)) {
+        const f = [{ txt: `Dernier message AIS il y a ${Math.round(w.t - tr.lastAis.t)} min`, pts: 0 }];
+        if (nearCoast(tr.lastAis.pos, 20)) f.push({ txt: 'Coupure à moins de 20 milles de la bande côtière', pts: 15 });
+        if (fishing) f.push({ txt: 'Navire de pêche', pts: 10 });
+        if (tr.shipType === 'cargo') f.push({ txt: 'Navire marchand sur une route commerciale', pts: -14 });
+        if (night) f.push({ txt: 'De nuit', pts: 5 });
+        if (tr.spoofAt) f.push({ txt: 'Position AIS falsifiée juste avant la coupure', pts: 15 });
+        raise(P, w, 'AIS_OFF', tr, f);
+      }
+      // Balise VMS silencieuse
+      if (reg && tr.lastVms && w.t - tr.lastVms.t > 150) {
+        const f = [{ txt: `Aucune position VMS depuis ${Math.round(w.t - tr.lastVms.t)} min (intervalle prévu : 60 min)`, pts: 0 }];
+        if (tr.lastAis && w.t - tr.lastAis.t > 35) f.push({ txt: 'AIS également coupé', pts: 12 });
+        raise(P, w, 'VMS_SILENT', tr, f);
+      }
+      // Écart VMS / AIS
+      if (tr.lastAis && tr.lastVms && w.t - tr.lastAis.t < 30 && w.t - tr.lastVms.t < 70) {
+        const aisH = tr.hist.filter((h) => h.src === 'AIS');
+        const ref = aisH.reduce((b, h) => (!b || Math.abs(h.t - tr.lastVms.t) < Math.abs(b.t - tr.lastVms.t) ? h : b), null);
+        const dtv = ref ? Math.abs(ref.t - tr.lastVms.t) : 999;
+        const d = ref ? G.distNm(ref.pos, tr.lastVms.pos) : 0;
+        const allow = 2 + 14 * (dtv / 60);
+        if (ref && dtv <= 15 && d > Math.max(5, allow)) {
+          raise(P, w, 'VMS_AIS_GAP', tr, [{ txt: `Positions VMS et AIS distantes de ${d.toFixed(1)} milles`, pts: 0 }, { txt: 'Balise déplacée sur un autre bateau ou AIS falsifié', pts: 6 }]);
+        }
+      }
+      const isIndustrial = tr.cls === 'large' && !['cargo', 'yacht', 'frigorifique'].includes(tr.shipType);
+      const recent = age <= 45;
+      // Bande des 6 milles
+      if (recent && isIndustrial && (fishing || tr.unknown) && inBand6(pos) && G.distNm(pos, DAKAR) > 8 && (tr.sog === undefined || tr.sog < 6)) {
+        const f = [{ txt: 'Position dans la zone réservée à la pêche artisanale', pts: 0 }];
+        if (tr.sog > 1.5 && tr.sog < 5) f.push({ txt: `Vitesse de pêche (${tr.sog.toFixed(1)} nœuds)`, pts: 8 });
+        if (!tr.lastAis || w.t - tr.lastAis.t > 35) f.push({ txt: 'Sans AIS actif', pts: 8 });
+        raise(P, w, 'ZONE_6', tr, f);
+      }
+      // Hors zone de licence
+      if (recent && reg && inBand12(pos) && !inBand6(pos) && G.distNm(pos, DAKAR) > 8 && (tr.sog === undefined || tr.sog < 6)) {
+        raise(P, w, 'ZONE_LIC', tr, [{ txt: `Licence « ${reg.licence} » valable au-delà de ${reg.minNm} milles`, pts: 0 }]);
+      }
+      // Aires marines protégées
+      if (recent && isIndustrial) {
+        const amp = D.amps.find((a) => G.distNm(pos, a.pos) <= a.rNm);
+        if (amp) raise(P, w, 'AMP', tr, [{ txt: amp.name, pts: 0 }]);
+      }
+      // Pêche sans licence
+      if (recent && FISHING.includes(tr.shipType) && tr.imo && !reg && inZee(pos) && tr.sog > 1.5 && tr.sog < 5) {
+        raise(P, w, 'NO_LICENCE', tr, [{ txt: 'Absent du registre des navires autorisés', pts: 0 }]);
+      }
+      // Arrêt prolongé au large
+      if (tr.sogHist && tr.lastAis && w.t - tr.lastAis.t < 20 && !nearCoast(pos, 40) && tr.shipType !== 'cargo') {
+        const slow = tr.sogHist.filter((h) => w.t - h.t <= 70);
+        if (slow.length >= 4 && slow.every((h) => h.sog < 1) && w.t - slow[0].t >= 55) {
+          raise(P, w, 'LOITER_OFFSHORE', tr, [{ txt: 'Vitesse inférieure à 1 nœud depuis plus d\'une heure', pts: 0 }, { txt: 'À plus de 40 milles de la côte', pts: 6 }, ...(night ? [{ txt: 'De nuit', pts: 4 }] : [])]);
+        }
+      }
+      // Navire inconnu de grande taille
+      if (tr.unknown && !tr.gather && tr.cls === 'large' && age < 60 && inZee(pos)) {
+        const f = [{ txt: `Détecté par ${[...tr.sources].join(', ')}, taille estimée ${tr.sizeEst || '?'} m`, pts: 0 }, { txt: 'Aucun AIS ni VMS correspondant', pts: 0 }];
+        if (inBand12(pos)) f.push({ txt: 'Dans les 12 milles', pts: 10 });
+        raise(P, w, 'DARK_LARGE', tr, f);
+      }
+      // Petite embarcation inconnue au large
+      if (tr.unknown && !tr.gather && tr.cls === 'small' && age < 60 && !inBand12(pos) && inZee(pos)) {
+        const f = [{ txt: `Embarcation de ${tr.sizeEst || '?'} m détectée par ${[...tr.sources].join(', ')}`, pts: 0 }, { txt: 'Au-delà des 12 milles', pts: 4 }];
+        if (night) f.push({ txt: 'De nuit, période habituelle des départs', pts: 10 });
+        raise(P, w, 'DARK_SMALL', tr, f);
+      }
+      // Falsification AIS
+      if (tr.spoofAt && w.t - tr.spoofAt < 90) {
+        raise(P, w, 'SPOOF', tr, [{ txt: 'Saut de position impossible (vitesse implicite supérieure à 35 nœuds)', pts: 0 }]);
+      }
+      // Contrôle portuaire : listes INN
+      if (tr.imo && tr.lastAis && G.distNm(pos, DAKAR) < 30 && tr.cog !== undefined && Math.abs(((G.bearing(pos, DAKAR) - tr.cog + 540) % 360) - 180) < 40) {
+        const hit = iuuByImo[tr.imo];
+        if (hit) raise(P, w, 'PORT_IUU', tr, [{ txt: `Numéro OMI ${tr.imo} identique à ${hit.name} (${hit.source}, depuis ${hit.since})`, pts: 0 }, { txt: `Nom déclaré dans l'AIS : ${tr.label}`, pts: 0 }]);
+      }
+      // Détresse
+      if (tr.distress && w.t - tr.distress < 120) {
+        raise(P, w, 'DISTRESS', tr, [{ txt: 'Embarcation immobilisée et surchargée observée par un drone', pts: 0 }], { rescue: true });
+      }
+      // Rassemblement sur une plage
+      if (tr.gather && tr.gatherSeen && w.t - tr.gatherSeen < 240) {
+        const beach = D.beaches.reduce((b, x) => (G.distNm(x.pos, pos) < G.distNm(b.pos, pos) ? x : b));
+        raise(P, w, 'GATHER', tr, [{ txt: `Plage de ${beach.name}`, pts: 0 }, { txt: 'Nombreuses pirogues et groupes de personnes', pts: 6 }, ...(night ? [{ txt: 'Fin de journée, avant un départ de nuit', pts: 6 }] : [])]);
+      }
+    });
+    // Transbordement : deux pistes immobiles côte à côte au large.
+    const list = [...P.tracks.values()].filter((t) => t.lastPos && w.t - t.lastT < 60 && t.cls === 'large' && (t.sog || 0) < 1.5 && !nearCoast(t.lastPos, 25));
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const d = G.distNm(list[i].lastPos, list[j].lastPos);
+        if (d < 0.8) {
+          const a = list[i].unknown ? list[j] : list[i];
+          const b = a === list[i] ? list[j] : list[i];
+          raise(P, w, 'TRANSSHIP', a, [{ txt: `Avec ${b.label}, à ${(d * 1852).toFixed(0)} m`, pts: 0 }, { txt: 'Les deux navires à l\'arrêt au large', pts: 4 }]);
+        }
+      }
+    }
+    P.alerts.forEach((al) => {
+      if (!al.closed && al.status === 'nouvelle') al.age = w.t - al.created;
+      // Une alerte non traitée dont la condition a cessé se met en veille.
+    });
+  }
+
+  // ----- Moyens -----
+  function eta(asset, pos) { return Math.round((G.distNm(asset.pos, pos) / asset.kn) * 60); }
+
+  function available(w, types) {
+    return w.assets.filter((a) => types.includes(a.type) && a.state !== 'maintenance' && !a.task);
+  }
+
+  function assign(P, w, alertId, assetId, purpose) {
+    const al = P.alerts.find((a) => a.id === alertId);
+    const as = w.assets.find((a) => a.id === assetId);
+    if (!al || !as || as.task) return null;
+    const tr = P.tracks.get(al.trackId);
+    as.task = { alertId, truthId: al.truthId, estimate: (tr && tr.lastPos ? tr.lastPos : al.pos).slice(), purpose, start: w.t };
+    as.state = 'transit';
+    if (purpose === 'verification') { al.status = 'en vérification'; al.assigned = as.id; al.assignedAt = w.t; }
+    if (purpose === 'intervention') { al.intervention = as.id; al.status = al.verdict ? al.status : 'en vérification'; }
+    if (purpose === 'rescue') { al.rescueBy = as.id; }
+    if (purpose === 'suivi') { al.followedBy = as.id; }
+    journal(P, w.t, 'asset', `${as.name} envoyé sur ${al.id} (${purposeLabel(purpose)}), arrivée estimée dans ${eta(as, as.task.estimate)} min.`);
+    return as;
+  }
+
+  const purposeLabel = (p) => ({ verification: 'vérification', intervention: 'intervention', rescue: 'sauvetage', suivi: 'suivi continu' }[p]);
+
+  async function sha256(text) {
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      let h = 2166136261;
+      for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return 'fnv-' + (h >>> 0).toString(16);
+    }
+  }
+
+  // Traite l'arrivée des moyens et produit les preuves.
+  function update(P, w) {
+    w.assets.forEach((as) => {
+      const task = as.task;
+      if (!task) return;
+      const al = P.alerts.find((a) => a.id === task.alertId);
+      if (!al) { as.task = null; as.state = 'retour'; return; }
+      const ship = w.ships.find((s) => s.id === task.truthId);
+      const tr = P.tracks.get(al.trackId);
+      if (tr && tr.lastPos && tr.lastT > (task.estimateT || task.start)) {
+        let est = tr.lastPos;
+        if (tr.credible && tr.spoofAt && (al.rule === 'SPOOF' || al.rule === 'AIS_OFF')) {
+          est = G.move(tr.credible.pos, tr.credible.cog || 0, ((tr.credible.sog || 0) * (w.t - tr.credible.t)) / 60);
+        }
+        const moved = G.distNm(est, task.estimate);
+        task.estimate = est.slice(); task.estimateT = tr.lastT;
+        if (as.state === 'recherche' && moved > 3) { as.state = 'transit'; task.lost = false; }
+      }
+      if (task.purpose === 'suivi') {
+        if (task.lowEnergy) { journal(P, w.t, 'asset', `${as.name} : réserve d'énergie basse, fin du suivi, retour à la base.`); as.task = null; as.state = 'retour'; al.followedBy = null; }
+        else if (task.lost) { task.lost = false; as.state = 'transit'; }
+        return;
+      }
+      if (task.lost && !task.done) {
+        task.done = true;
+        if (task.purpose === 'verification') { al.status = 'cible non retrouvée'; al.verdict = 'non retrouvée'; }
+        journal(P, w.t, 'verif', `${al.id} : ${as.name} n'a pas retrouvé la cible après 70 min de recherche.`);
+        as.task = null; as.state = 'retour';
+        return;
+      }
+      if (task.arrivedAt && !task.done && ship) {
+        task.done = true;
+        if (task.purpose === 'verification') {
+          const positive = al.truthPositive;
+          const L = P.learn[al.rule];
+          L.n++; if (positive) { L.a++; L.ok++; } else { L.b++; }
+          al.verdict = positive ? 'confirmée' : 'infondée';
+          al.status = positive ? 'confirmée' : 'infondée';
+          al.verifiedAt = w.t;
+          al.delay = w.t - al.created;
+          const ev = {
+            id: 'PV-' + al.id.slice(2) + '-' + String(w.t).padStart(4, '0'),
+            time: D.START + w.t * 60000,
+            pos: ship.pos.slice(),
+            heading: Math.round(ship.heading),
+            sog: ship.sog,
+            asset: as.name,
+            identity: ship.imo ? `${ship.name} (OMI ${ship.imo})` : ship.name,
+            shipType: ship.type,
+            lengthM: ship.lengthM,
+            persons: ship.persons || null,
+            observations: positive ? ship.observations : (ship.benign || `${ship.name} : aucune infraction constatée pour ce motif.`),
+            night: SIM.isNight(w.t),
+          };
+          al.evidence = ev;
+          sha256(JSON.stringify(ev)).then((h) => { ev.hash = h; });
+          journal(P, w.t, 'verif', `${al.id} ${al.verdict} par ${as.name} : ${ev.observations}`);
+          if (al.rule === 'DISTRESS' || (positive && ship.distress)) {
+            task.done = false; task.arrivedAt = null; task.purpose = 'suivi'; al.followedBy = as.id; // le moyen reste sur zone jusqu'aux secours
+            return;
+          }
+          task.releaseAt = w.t + 15;
+        } else if (task.purpose === 'intervention') {
+          al.intervened = w.t;
+          al.status = 'arraisonnée';
+          al.outcome = al.truthPositive
+            ? (al.rule === 'PORT_IUU' ? 'Navire escorté, accès au port refusé (accord PSMA).' : 'Arraisonnement : infraction constatée, navire dérouté vers Dakar, procès-verbal établi.')
+            : 'Contrôle effectué : aucune infraction constatée.';
+          journal(P, w.t, 'decision', `${al.id} : ${as.name}. ${al.outcome}`);
+          task.releaseAt = w.t + 10;
+          if (ship) ship.plan = [{ kind: 'goto', to: DAKAR, kn: 9 }, { kind: 'hold', until: 99999 }], ship.legIdx = 0, ship.legState = {}, ship.aisOn = ship.hasAis;
+        } else if (task.purpose === 'rescue') {
+          al.rescued = w.t; al.status = 'secourue';
+          al.outcome = `${ship.persons || 'Les'} personnes secourues et ramenées à Joal.`;
+          journal(P, w.t, 'decision', `${al.id} : ${al.outcome}`);
+          ship.plan = [{ kind: 'goto', to: D.ports[2].pos, kn: 8 }, { kind: 'hold', until: 99999 }]; ship.legIdx = 0; ship.legState = {}; ship.distress = false;
+          w.assets.forEach((o) => { if (o.task && o !== as && (o.task.alertId === al.id || o.task.truthId === ship.id)) { o.task = null; o.state = 'retour'; } });
+          task.releaseAt = w.t + 5;
+        }
+      }
+      if (task.releaseAt && w.t >= task.releaseAt) { as.task = null; as.state = 'retour'; }
+      if (task.lowEnergy && task.purpose !== 'intervention') { journal(P, w.t, 'asset', `${as.name} : réserve d'énergie basse, retour à la base.`); as.task = null; as.state = 'retour'; }
+    });
+  }
+
+  function decide(P, w, alertId, decision) {
+    const al = P.alerts.find((a) => a.id === alertId);
+    if (!al) return;
+    const labels = {
+      dpsp: 'Dossier transmis à la DPSP (procès-verbal)',
+      marine: 'Dossier transmis à la Marine nationale',
+      port: 'Accès au port de Dakar refusé (accord PSMA)',
+      classer: 'Alerte classée par l\'opérateur',
+    };
+    al.decision = labels[decision];
+    al.closed = decision !== 'marine';
+    if (decision === 'classer' && !al.verdict) {
+      // Classer sans vérifier compte comme un retour négatif léger.
+      P.learn[al.rule].b += 0.5;
+    }
+    al.status = decision === 'classer' ? 'classée' : 'transmise';
+    al.closed = true;
+    journal(P, w.t, 'decision', `${al.id} : ${al.decision}.`);
+  }
+
+  window.PLATFORM = { RULES, createPlatform, ingest, evaluate, update, assign, decide, available, eta, regByImo, iuuByImo };
+})();
+</script>
+<script>// Interface opérateur : carte, alertes, moyens, contrôle des navires, journal.
+(function () {
+  const D = window.DIAMBAR_DATA;
+  const GEO = window.DIAMBAR_GEO;
+  const P_ = window.PLATFORM;
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  const state = {
+    w: null, P: null, playing: false, speed: 10, acc: 0, tab: 'alerts', selAlert: null,
+    filter: 'ouvertes', truth: false, srModel: true, search: '', dirty: true, lastPanel: 0,
+  };
+
+  // ---------- Temps ----------
+  const DAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+  function clockText(t) {
+    const d = new Date(D.START + t * 60000);
+    return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} oct. ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  }
+  const hhmm = (t) => clockText(t).slice(-5);
+  const dur = (m) => (m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}`);
+
+  // ---------- Sévérité ----------
+  const sev = (s) => (s >= 85 ? 'crit' : s >= 65 ? 'high' : s >= 45 ? 'mid' : 'low');
+  const sevLabel = { crit: 'Critique', high: 'Haute', mid: 'Moyenne', low: 'Basse' };
+  const sevColor = (s) => css('--' + sev(s));
+
+  // ---------- Carte ----------
+  let map; const layers = {};
+  function initMap() {
+    map = L.map('map', { zoomControl: true, attributionControl: true, minZoom: 6, maxZoom: 13, preferCanvas: false, worldCopyJump: false })
+      .setView([14.35, -17.75], 7);
+    window.__diambarMap = map;
+    map.attributionControl.setPrefix(false).addAttribution('Côtes : Natural Earth · Limites indicatives');
+    map.setMaxBounds([[10.5, -23], [18.5, -11]]);
+
+    const land = css('--land'), landLine = css('--land-line');
+    L.geoJSON(GEO.zee, { style: { color: css('--accent'), weight: 1.4, dashArray: '6 5', fill: false }, interactive: false }).addTo(map);
+    L.geoJSON(GEO.gambia, { style: { color: css('--muted'), weight: 0.8, dashArray: '2 4', fillColor: '#000', fillOpacity: 0.18 }, interactive: false }).addTo(map);
+    L.geoJSON(GEO.band12, { style: { color: css('--muted'), weight: 0.9, fill: false }, interactive: false }).addTo(map);
+    L.geoJSON(GEO.band6, { style: { color: css('--own'), weight: 0.8, opacity: 0.7, fillColor: css('--own'), fillOpacity: 0.07 }, interactive: false }).addTo(map);
+    L.geoJSON(GEO.land, { style: { color: landLine, weight: 0.8, fillColor: land, fillOpacity: 1 }, interactive: false }).addTo(map);
+
+    D.amps.forEach((a) => L.circle(a.pos, { radius: a.rNm * 1852, color: css('--ok'), weight: 1, fillOpacity: 0.16 }).bindTooltip(a.name + ' (indicative)').addTo(map));
+    D.offshore.forEach((o) => L.circle(o.pos, { radius: o.rNm * 1852, color: '#9fb6ff', weight: 1, dashArray: '3 3', fillOpacity: 0.06 }).bindTooltip(o.name).addTo(map));
+    D.beaches.forEach((b) => L.circleMarker(b.pos, { radius: 3, color: css('--high'), weight: 1, fillOpacity: 0.9 }).bindTooltip('Plage de départ surveillée : ' + b.name).addTo(map));
+
+    const lbl = (pos, text, cls) => L.marker(pos, { interactive: false, icon: L.divIcon({ className: '', html: `<div class="mk-label ${cls || ''}" style="opacity:.75">${text}</div>`, iconSize: [0, 0] }) }).addTo(map);
+    lbl([15.0, -16.62], 'SÉNÉGAL'); lbl([16.5, -15.9], 'MAURITANIE'); lbl([13.32, -16.2], 'GAMBIE'); lbl([12.05, -15.6], 'GUINÉE-BISSAU');
+    lbl([13.32, -18.6], 'Eaux gambiennes'); lbl([15.45, -19.75], 'ZEE (indicative)');
+    D.ports.forEach((p) => L.circleMarker(p.pos, { radius: 3.5, color: css('--fg'), weight: 1, fillColor: css('--ink'), fillOpacity: 1 }).bindTooltip(p.name).addTo(map));
+
+    layers.tracks = L.layerGroup().addTo(map);
+    layers.truth = L.layerGroup().addTo(map);
+    layers.assets = L.layerGroup().addTo(map);
+    layers.alerts = L.layerGroup().addTo(map);
+    layers.overlay = L.layerGroup().addTo(map);
+    layers.markers = { tracks: new Map(), truth: new Map(), assets: new Map(), alerts: new Map(), ranges: new Map(), routes: new Map() };
+  }
+
+  function shipSvg(kind, color, rot) {
+    if (kind === 'unknown') return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="5" y="5" width="8" height="8" transform="rotate(45 9 9)" fill="none" stroke="${color}" stroke-width="1.8"/></svg>`;
+    if (kind === 'small') return `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="transform:rotate(${rot}deg)"><path d="M7 1 L10 12 L7 10 L4 12 Z" fill="${color}"/></svg>`;
+    return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" style="transform:rotate(${rot}deg)"><path d="M9 1 L15 16 L9 12.5 L3 16 Z" fill="${color}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
+  }
+
+  function assetSvg(a) {
+    const c = a.state === 'maintenance' ? css('--muted') : css('--own');
+    if (a.type === 'drone') return `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style="transform:rotate(${a.heading}deg)"><path d="M11 2 L13 10 L21 13 L13 13 L12 19 L14 21 L8 21 L10 19 L9 13 L1 13 L9 10 Z" fill="${c}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
+    if (a.type === 'opv') return `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style="transform:rotate(${a.heading}deg)"><path d="M11 1 L15 7 L15 20 L7 20 L7 7 Z" fill="${c}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
+    return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="6.5" fill="${c}" stroke="${css('--ink')}" stroke-width="1"/><path d="M9 4 L12 12 L9 10.5 L6 12 Z" fill="${css('--ink')}" transform="rotate(${a.heading} 9 9)"/></svg>`;
+  }
+
+  function upsertMarker(store, group, key, pos, html, size, tooltip, onClick) {
+    let m = store.get(key);
+    const icon = L.divIcon({ className: 'mk', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+    if (!m) {
+      m = L.marker(pos, { icon, keyboard: false }).addTo(group);
+      if (tooltip) m.bindTooltip(tooltip, { direction: 'top', offset: [0, -8] });
+      if (onClick) m.on('click', onClick);
+      store.set(key, m);
+    } else {
+      m.setLatLng(pos);
+      if (m._lastHtml !== html) m.setIcon(icon);
+      if (tooltip && m.getTooltip()) m.setTooltipContent(tooltip);
+    }
+    m._lastHtml = html; m._seen = true;
+    return m;
+  }
+
+  function sweep(store, group) {
+    store.forEach((m, k) => { if (!m._seen) { group.removeLayer(m); store.delete(k); } m._seen = false; });
+  }
+
+  function renderMap() {
+    const { w, P } = state;
+    const M = layers.markers;
+    // Pistes de la plateforme
+    const alertByTrack = {};
+    P.alerts.forEach((a) => { if (!a.closed && (!alertByTrack[a.trackId] || alertByTrack[a.trackId].score < a.score)) alertByTrack[a.trackId] = a; });
+    P.tracks.forEach((tr) => {
+      if (!tr.lastPos || w.t - tr.lastT > 240) return;
+      const stale = w.t - tr.lastT > 30;
+      const al = alertByTrack[tr.id];
+      const color = al ? sevColor(al.score) : tr.unknown ? '#ffffff' : (stale ? css('--muted') : css('--fg'));
+      const kind = tr.unknown && !tr.visual ? 'unknown' : tr.cls === 'small' ? 'small' : 'large';
+      const html = `<div style="opacity:${stale ? 0.55 : 1}">${shipSvg(kind, color, tr.cog || 0)}</div>`;
+      const tip = `<b>${esc(tr.label)}</b><br>${[...tr.sources].join(' · ')}<br>vu à ${hhmm(tr.lastT)}${tr.sog !== undefined ? ` · ${tr.sog.toFixed(1)} nd` : ''}`;
+      upsertMarker(M.tracks, layers.tracks, tr.id, tr.lastPos, html, 18, tip, al ? () => openAlert(al.id) : null);
+    });
+    sweep(M.tracks, layers.tracks);
+
+    // Vérité terrain (mode formateur)
+    if (state.truth) {
+      w.ships.forEach((s) => {
+        const bad = (s.violations || []).length > 0;
+        const html = `<div style="opacity:.8">${shipSvg(s.cls === 'small' ? 'small' : 'large', bad ? '#ff6fd8' : '#7fa0b3', s.heading)}</div>`;
+        upsertMarker(M.truth, layers.truth, s.id, s.pos, html, 16, `<b>${esc(s.name)}</b> (vérité)${s.story ? '<br>' + esc(s.story) : ''}`);
+      });
+    }
+    sweep(M.truth, layers.truth);
+
+    // Moyens et portée des capteurs
+    w.assets.forEach((a) => {
+      const showLabel = a.state !== 'base' && a.state !== 'maintenance';
+      const label = `<div style="position:relative">${assetSvg(a)}${showLabel ? `<div class="mk-label" style="position:absolute;left:22px;top:3px;color:${css('--own')}">${esc(a.name)}</div>` : ''}</div>`;
+      upsertMarker(M.assets, layers.assets, a.id, a.pos, label, 22, `<b>${esc(a.name)}</b><br>${stateLabel(a)}`, () => { setTab('assets'); });
+      const active = a.state !== 'base' && a.state !== 'maintenance';
+      let rc = M.ranges.get(a.id);
+      if (active) {
+        if (!rc) { rc = L.circle(a.pos, { radius: a.detectLarge * 1852, color: css('--own'), weight: 0.7, opacity: 0.5, fillOpacity: 0.04, interactive: false }).addTo(layers.assets); M.ranges.set(a.id, rc); }
+        rc.setLatLng(a.pos);
+      } else if (rc) { layers.assets.removeLayer(rc); M.ranges.delete(a.id); }
+      let rt = M.routes.get(a.id);
+      if (a.task && a.task.estimate) {
+        const tgt = a.task.acquired ? (w.ships.find((s) => s.id === a.task.truthId) || {}).pos || a.task.estimate : a.task.estimate;
+        if (!rt) { rt = L.polyline([a.pos, tgt], { color: css('--own'), weight: 1.4, dashArray: '4 4', interactive: false }).addTo(layers.assets); M.routes.set(a.id, rt); }
+        rt.setLatLngs([a.pos, tgt]);
+      } else if (rt) { layers.assets.removeLayer(rt); M.routes.delete(a.id); }
+    });
+    sweep(M.assets, layers.assets);
+
+    // Alertes ouvertes : anneau pulsant pour les critiques et hautes
+    P.alerts.forEach((al) => {
+      if (al.closed || al.score < 65 || ['infondée', 'secourue', 'arraisonnée'].includes(al.status)) return;
+      const c = sevColor(al.score);
+      upsertMarker(M.alerts, layers.alerts, al.id, al.pos, `<div class="pulse" style="width:30px;height:30px;border-color:${c}"></div>`, 30, null, () => openAlert(al.id));
+    });
+    sweep(M.alerts, layers.alerts);
+  }
+
+  // Trace de la piste sélectionnée
+  let selLine = null;
+  function drawSelection() {
+    if (selLine) { layers.overlay.removeLayer(selLine); selLine = null; }
+    const al = state.P.alerts.find((a) => a.id === state.selAlert);
+    if (!al) return;
+    const tr = state.P.tracks.get(al.trackId);
+    if (tr && tr.hist.length > 1) selLine = L.polyline(tr.hist.map((h) => h.pos), { color: css('--accent'), weight: 1.6, opacity: 0.85, interactive: false }).addTo(layers.overlay);
+  }
+
+  function flashSwath(name, area) {
+    const shape = area ? L.circle(area, { radius: 60 * 1852 }) : L.geoJSON(GEO.zee);
+    shape.setStyle({ color: '#9fb6ff', weight: 1, fillColor: '#9fb6ff', fillOpacity: 0.16, interactive: false });
+    shape.addTo(layers.overlay);
+    setTimeout(() => layers.overlay.removeLayer(shape), 1800);
+    toast(`Passage satellite : ${name}`, 'sat');
+  }
+
+  // ---------- Notifications ----------
+  function toast(text, cls) {
+    const el = document.createElement('div');
+    el.className = 'toast ' + (cls || '');
+    el.textContent = text;
+    $('#toasts').prepend(el);
+    setTimeout(() => el.remove(), 4200);
+    while ($('#toasts').children.length > 3) $('#toasts').lastChild.remove();
+  }
+
+  // ---------- Moteur ----------
+  function reset(targetT, caseDef) {
+    state.w = SIM.createWorld({ srModel: state.srModel });
+    state.P = P_.createPlatform();
+    state.selAlert = null;
+    Object.values(layers.markers).forEach((s) => s.forEach((m) => { m.remove(); }));
+    Object.values(layers.markers).forEach((s) => s.clear());
+    layers.tracks.clearLayers(); layers.truth.clearLayers(); layers.assets.clearLayers(); layers.alerts.clearLayers(); layers.overlay.clearLayers();
+    if (targetT) {
+      const prep = (caseDef && caseDef.prep) || [];
+      while (state.w.t < targetT) {
+        tick(1, true);
+        prep.forEach((pr) => {
+          if (pr.done) return;
+          const al = state.P.alerts.find((a) => a.rule === pr.rule);
+          if (al) { PLATFORM.assign(state.P, state.w, al.id, pr.asset, pr.purpose); pr.done = true; }
+        });
+      }
+      prep.forEach((pr) => { pr.done = false; });
+    }
+    state.dirty = true;
+    renderAll();
+  }
+
+  let seenAlerts = 0; let seenJournal = 0;
+  function tick(dt, silent) {
+    const { w, P } = state;
+    SIM.step(w, dt);
+    w.reports.forEach((r) => {
+      PLATFORM.ingest(P, r);
+      if (r.kind === 'sat' && !silent) flashSwath(r.name, r.area);
+    });
+    w.reports.length = 0;
+    PLATFORM.evaluate(P, w);
+    PLATFORM.update(P, w);
+    if (silent) { seenAlerts = P.alerts.length; seenJournal = P.journal.length; return; }
+    if (P.alerts.length > seenAlerts) {
+      P.alerts.slice(seenAlerts).forEach((a) => toast(`${a.id} · ${a.title} · ${a.label} (score ${a.score})`, a.score >= 85 ? 'crit' : ''));
+      seenAlerts = P.alerts.length; state.dirty = true;
+    }
+    if (P.journal.length !== seenJournal) { seenJournal = P.journal.length; state.dirty = true; }
+  }
+
+  let lastFrame = 0; let lastMap = 0;
+  function frame(ts) {
+    const dtReal = Math.min(0.25, (ts - (lastFrame || ts)) / 1000);
+    lastFrame = ts;
+    if (state.playing) {
+      state.acc += dtReal * state.speed;
+      while (state.acc >= 1) {
+        state.acc -= 1;
+        tick(1);
+        if (state.w.t >= D.END_MIN) { setPlaying(false); toast('Fin du scénario : jeudi 15 octobre, 9 h 00.'); break; }
+      }
+    }
+    if (ts - lastMap > 90) { lastMap = ts; renderMap(); renderTop(); }
+    if (state.dirty && ts - state.lastPanel > 400) { state.lastPanel = ts; state.dirty = false; renderPanel(); }
+    else if (ts - state.lastPanel > 1500) { state.lastPanel = ts; renderPanel(); }
+    requestAnimationFrame(frame);
+  }
+
+  function setPlaying(p) {
+    state.playing = p;
+    $('#play').textContent = p ? 'Pause' : 'Lecture';
+  }
+
+  // ---------- Indicateurs ----------
+  let covPts = null;
+  function coverage() {
+    if (!covPts) {
+      const r = G.rng(7); const b = G.bboxOf(GEO.zee); covPts = [];
+      while (covPts.length < 1400) { const p = [b.s + r() * (b.n - b.s), b.w + r() * (b.e - b.w)]; if (G.inFeature(p, GEO.zee)) covPts.push(p); }
+    }
+    const act = state.w.assets.filter((a) => a.state !== 'base' && a.state !== 'maintenance');
+    let n = 0;
+    covPts.forEach((p) => { if (act.some((a) => G.distNm(a.pos, p) <= a.detectLarge)) n++; });
+    return (100 * n) / covPts.length;
+  }
+
+  function renderTop() {
+    const { w, P } = state;
+    $('#clock').textContent = clockText(w.t);
+    $('#daynight').textContent = SIM.isNight(w.t) ? 'nuit' : 'jour';
+    const open = P.alerts.filter((a) => !a.closed && !['infondée', 'secourue', 'arraisonnée'].includes(a.status));
+    const by = { crit: 0, high: 0, mid: 0, low: 0 };
+    open.forEach((a) => by[sev(a.score)]++);
+    $('#kOpen').innerHTML = `${open.length}<span class="sevs">${['crit', 'high', 'mid'].map((k) => by[k] ? `<i style="background:${css('--' + k)}">${by[k]}</i>` : '').join('')}</span>`;
+    $('#kCov').innerHTML = `${coverage().toFixed(1)}<small>% de la ZEE</small>`;
+    const ver = P.alerts.filter((a) => a.verdict === 'confirmée' || a.verdict === 'infondée');
+    $('#kDelay').innerHTML = ver.length ? `${Math.round(ver.reduce((s, a) => s + a.delay, 0) / ver.length)}<small>min</small>` : '–';
+    $('#kFalse').innerHTML = ver.length ? `${Math.round((100 * ver.filter((a) => a.verdict === 'infondée').length) / ver.length)}<small>% de ${ver.length}</small>` : '–';
+    $('#kDoc').textContent = P.alerts.filter((a) => a.verdict === 'confirmée' && a.rule !== 'DISTRESS' && a.rule !== 'GATHER').length;
+    $('#kSaved').textContent = P.alerts.filter((a) => a.rescued).reduce((s, a) => s + ((w.ships.find((x) => x.id === a.truthId) || {}).persons || 0), 0);
+    const cnt = open.filter((a) => a.score >= 65).length;
+    $('#tabCount').hidden = !cnt; $('#tabCount').textContent = cnt;
+  }
+
+  // ---------- Panneau ----------
+  function setTab(t) {
+    state.tab = t;
+    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
+    if (t !== 'alerts') state.selAlert = null;
+    drawSelection();
+    renderPanel();
+  }
+
+  function renderAll() { renderMap(); renderTop(); renderPanel(); }
+
+  function renderPanel() {
+    const pane = $('#pane');
+    const keepScroll = pane.scrollTop;
+    const focusId = document.activeElement && document.activeElement.id;
+    if (state.tab === 'alerts') pane.innerHTML = state.selAlert ? alertDetail() : alertList();
+    if (state.tab === 'assets') pane.innerHTML = assetsPane();
+    if (state.tab === 'ships') pane.innerHTML = shipsPane();
+    if (state.tab === 'journal') pane.innerHTML = journalPane();
+    if (state.tab === 'system') pane.innerHTML = systemPane();
+    pane.scrollTop = keepScroll;
+    if (focusId && document.getElementById(focusId)) { const el = document.getElementById(focusId); el.focus(); if (el.setSelectionRange && el.value) el.setSelectionRange(el.value.length, el.value.length); }
+  }
+
+  function statusChip(a) {
+    const map = { 'nouvelle': '', 'en vérification': 'run', 'confirmée': 'bad', 'infondée': 'ok', 'cible non retrouvée': '', 'transmise': 'ok', 'classée': '', 'arraisonnée': 'ok', 'secourue': 'ok' };
+    return `<span class="chip ${map[a.status] || ''}">${esc(a.status)}</span>`;
+  }
+
+  function alertList() {
+    const { P } = state;
+    const f = state.filter;
+    let list = P.alerts.slice();
+    if (f === 'ouvertes') list = list.filter((a) => !a.closed && !['infondée', 'secourue', 'arraisonnée'].includes(a.status));
+    list.sort((a, b) => (a.closed - b.closed) || (b.score - a.score) || (b.created - a.created));
+    const filt = `<div class="filters"><div class="seg" role="group" aria-label="Filtre">
+      <button type="button" data-filter="ouvertes" aria-pressed="${f === 'ouvertes'}">Ouvertes</button>
+      <button type="button" data-filter="toutes" aria-pressed="${f === 'toutes'}">Toutes (${P.alerts.length})</button></div>
+      <span class="hint">Classées par score de risque</span></div>`;
+    if (!list.length) {
+      return filt + `<div class="empty">${state.w.t < 20 ? 'Aucune alerte pour l\'instant. Lancez la lecture : le premier passage satellite a lieu à 18 h 52.' : 'Aucune alerte ouverte. La plateforme surveille les flux AIS, VMS et satellites.'}</div>`;
+    }
+    return filt + `<div class="alerts">${list.map((a) => `
+      <button class="alert ${a.closed ? 'closed' : ''}" type="button" data-alert="${a.id}">
+        <span class="stripe" style="background:${sevColor(a.score)}"></span>
+        <span class="body"><div class="t">${esc(a.title)}</div><div class="s">${a.id} · ${esc(a.label)} · ${hhmm(a.created)}</div></span>
+        <span class="meta"><span class="score" style="color:${sevColor(a.score)}">${a.score}</span>${statusChip(a)}</span>
+      </button>`).join('')}</div>`;
+  }
+
+  function nearest(types, pos, n) {
+    return state.w.assets.filter((a) => types.includes(a.type) && a.state !== 'maintenance' && !a.task)
+      .map((a) => ({ a, eta: P_.eta(a, pos) })).sort((x, y) => x.eta - y.eta).slice(0, n);
+  }
+
+  function alertDetail() {
+    const { P, w } = state;
+    const a = P.alerts.find((x) => x.id === state.selAlert);
+    if (!a) { state.selAlert = null; return alertList(); }
+    const tr = P.tracks.get(a.trackId);
+    const L = P.learn[a.rule];
+    const s = sev(a.score);
+    let h = `<button class="back" type="button" data-back>← Toutes les alertes</button>
+      <div class="detail-head"><div><h3>${esc(a.title)}</h3><div class="hint">${a.id} · levée à ${hhmm(a.created)} · ${statusChip(a)}</div></div>
+      <div class="bigscore"><span class="score" style="color:${sevColor(a.score)}">${a.score}</span><small>${sevLabel[s]}</small></div></div>
+      <dl class="kv">
+        <dt>Navire</dt><dd>${esc(a.label)}</dd>
+        <dt>Position</dt><dd>${G.fmtPos(tr && tr.lastPos ? tr.lastPos : a.pos)}</dd>
+        <dt>Dernier contact</dt><dd>${tr ? hhmm(tr.lastT) + ' · ' + [...tr.sources].join(', ') : '–'}</dd>
+        ${tr && tr.imo ? `<dt>Registre</dt><dd>${P_.regByImo[tr.imo] ? 'Autorisé · ' + esc(P_.regByImo[tr.imo].licence) : P_.iuuByImo[tr.imo] ? 'Liste INN · ' + esc(P_.iuuByImo[tr.imo].name) : 'Absent du registre'}</dd>` : ''}
+      </dl>
+      <h3>Pourquoi cette alerte</h3>
+      <ul class="factors">${a.factors.map((f) => `<li><span>${esc(f.txt)}</span><span>${f.pts ? (f.pts > 0 ? '+' : '') + f.pts : ''}</span></li>`).join('')}
+        <li><span>Base de la règle</span><span>${PLATFORM.RULES[a.rule].base}</span></li>
+        <li><span>Fiabilité apprise de la règle</span><span>${Math.round((100 * L.a) / (L.a + L.b))} %</span></li></ul>`;
+
+    if (a.evidence) h += evidenceCard(a);
+    if (a.outcome) h += `<div class="outcome">${esc(a.outcome)}</div>`;
+
+    h += '<div class="actions">';
+    const pos = tr && tr.lastPos ? tr.lastPos : a.pos;
+    if (!a.closed) {
+      if (a.rescue || a.rule === 'DISTRESS') {
+        if (!a.rescueBy && !a.rescued) {
+          const best = nearest(['opv', 'usv'], pos, 2);
+          h += `<div class="label">Sauvetage</div><div class="row">${best.map((b) => `<button class="btn danger" type="button" data-assign="${b.a.id}" data-purpose="rescue">Déclencher le sauvetage · ${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('') || '<span class="hint">Aucun moyen disponible.</span>'}</div>`;
+        } else if (a.rescueBy && !a.rescued) h += `<div class="outcome">Secours en route : ${esc(w.assets.find((x) => x.id === a.rescueBy).name)}. Le drone reste sur zone et transmet la position.</div>`;
+      }
+      if (!a.assigned && !a.verdict) {
+        const best = nearest(['usv', 'drone'], pos, 3);
+        h += `<div class="label">Vérifier sur place</div><div class="row">${best.map((b) => `<button class="btn own" type="button" data-assign="${b.a.id}" data-purpose="verification">${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('') || '<span class="hint">Tous les drones sont engagés.</span>'}</div>`;
+      } else if (a.assigned && !a.verdict) {
+        const as = w.assets.find((x) => x.id === a.assigned);
+        h += `<div class="outcome">${esc(as.name)} en route${as.task && as.task.acquired ? ', cible acquise par ses capteurs' : ''}${as.state === 'recherche' ? ', recherche en cours autour de la dernière position' : ''}. Arrivée estimée : ${dur(P_.eta(as, as.task ? as.task.estimate : pos))}.</div>`;
+      }
+      if (!a.followedBy && !a.rescued && !['infondée', 'arraisonnée'].includes(a.status)) {
+        const fol = nearest(['usv', 'drone'], pos, 2);
+        if (fol.length) h += `<div class="label">Suivre en continu</div><div class="row">${fol.map((b) => `<button class="btn" type="button" data-assign="${b.a.id}" data-purpose="suivi">${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('')}</div>`;
+      } else if (a.followedBy) {
+        const fa = w.assets.find((x) => x.id === a.followedBy);
+        if (fa && fa.task) h += `<div class="outcome">${esc(fa.name)} suit la cible en continu et transmet sa position.</div>`;
+      }
+      const night = SIM.isNight(w.t);
+      h += `<div class="label">Autres moyens</div><div class="row">
+        <button class="btn" type="button" data-sat="${night ? 'radar' : 'optique'}">Commander une image ${night ? 'radar' : 'optique'} sur la zone (${night ? '50' : '35'} min)</button>`;
+      if (!a.intervention && a.rule !== 'DISTRESS' && a.rule !== 'GATHER') {
+        const opv = nearest(['opv'], pos, 1)[0];
+        if (opv) h += `<button class="btn" type="button" data-assign="${opv.a.id}" data-purpose="intervention">Intervention de la Marine · ${esc(opv.a.name)} · ${dur(opv.eta)}</button>`;
+      }
+      h += '</div>';
+      h += `<div class="label">Décision</div><div class="row">`;
+      if (a.rule === 'PORT_IUU') h += `<button class="btn danger" type="button" data-decide="port">Refuser l'accès au port</button>`;
+      if (a.verdict === 'confirmée' || a.intervened) h += `<button class="btn primary" type="button" data-decide="dpsp">Transmettre à la DPSP</button><button class="btn" type="button" data-decide="marine">Transmettre à la Marine</button>`;
+      h += `<button class="btn" type="button" data-decide="classer">Classer</button></div>`;
+    } else {
+      h += `<div class="outcome">${esc(a.decision || 'Alerte close.')}</div>`;
+    }
+    h += `<div class="row"><button class="btn" type="button" data-center>Centrer la carte</button></div></div>`;
+    return h;
+  }
+
+  function evidenceCard(a) {
+    const ev = a.evidence;
+    const ok = a.verdict === 'confirmée';
+    const d = new Date(ev.time);
+    const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+    return `<div class="evidence">
+      <img alt="Image de vérification simulée : ${esc(ev.identity)}" src="${photo(ev, stamp)}">
+      <div class="ev-body">
+        <div class="verdict ${ok ? 'ok' : 'no'}">${ok ? 'Infraction confirmée' : 'Alerte infondée'} · ${esc(ev.asset)}</div>
+        <div>${esc(ev.observations)}</div>
+        <dl class="kv" style="margin:0">
+          <dt>Procès-verbal</dt><dd>${ev.id}</dd>
+          <dt>Horodatage</dt><dd>${stamp}</dd>
+          <dt>Position</dt><dd>${G.fmtPos(ev.pos)}</dd>
+          <dt>Identité</dt><dd>${esc(ev.identity)}</dd>
+          ${ev.persons ? `<dt>Personnes</dt><dd>environ ${ev.persons}</dd>` : ''}
+        </dl>
+        <div class="hash">Empreinte SHA-256 : ${ev.hash || 'calcul…'}</div>
+      </div></div>`;
+  }
+
+  // Image de vérification simulée (caméra optique de jour, thermique de nuit).
+  function photo(ev, stamp) {
+    const night = ev.night;
+    const bg1 = night ? '#0b0f0d' : '#5d7f93', bg2 = night ? '#1b2420' : '#2e4d61';
+    const hull = night ? '#f2f2e6' : '#1d262c', deck = night ? '#d8d8c8' : '#c9cfd2';
+    const t = ev.shipType;
+    let ship;
+    if (t === 'pirogue') ship = `<path d="M60 170 Q200 196 340 160 L330 176 Q200 206 70 184 Z" fill="${hull}"/><path d="M70 172 Q200 190 330 162" stroke="${night ? '#fff' : '#d9a33a'}" stroke-width="5" fill="none"/>${ev.persons ? Array.from({ length: 34 }, (_, i) => `<circle cx="${92 + i * 7}" cy="${163 + Math.sin(i) * 3 - (i % 3) * 3}" r="3.2" fill="${night ? '#ffffff' : '#2a1f1a'}"/>`).join('') : ''}`;
+    else if (t === 'cargo') ship = `<path d="M30 175 L370 175 L350 200 L50 200 Z" fill="${hull}"/>${[60, 110, 160, 210, 260].map((x) => `<rect x="${x}" y="150" width="44" height="25" fill="${night ? '#bfbfb0' : ['#a33', '#357', '#c83', '#2a6', '#777'][x / 50 % 5 | 0]}"/>`).join('')}<rect x="310" y="128" width="34" height="47" fill="${deck}"/>`;
+    else if (t === 'yacht') ship = `<path d="M100 178 L320 172 L300 196 L120 196 Z" fill="${night ? '#fff' : '#e9ecee'}"/><path d="M150 172 L260 168 L240 150 L175 152 Z" fill="${night ? '#ddd' : '#8fa3ad'}"/><rect x="120" y="168" width="22" height="9" fill="${night ? '#fff' : '#6b5a3a'}"/>`;
+    else if (t === 'frigorifique') ship = `<path d="M30 172 L370 172 L352 202 L48 202 Z" fill="${night ? '#fff' : '#f2f2f2'}"/><rect x="70" y="140" width="190" height="32" fill="${night ? '#e8e8dc' : '#dcdcdc'}"/><rect x="290" y="118" width="46" height="54" fill="${deck}"/>`;
+    else ship = `<path d="M70 176 L345 176 L325 200 L88 200 Z" fill="${hull}"/><rect x="230" y="140" width="56" height="36" fill="${deck}"/><path d="M110 176 L110 120 M110 122 L200 176" stroke="${deck}" stroke-width="3"/>${t === 'chalutier' ? `<path d="M340 186 L390 214" stroke="${night ? '#fff' : '#ddd'}" stroke-width="2"/>` : ''}`;
+    const txt = night ? '#ffffff' : '#ffffff';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 230">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg1}"/><stop offset="1" stop-color="${bg2}"/></linearGradient></defs>
+      <rect width="400" height="230" fill="url(#g)"/>
+      <rect y="186" width="400" height="44" fill="${night ? '#141a17' : '#244154'}"/>
+      ${ship}
+      <g font-family="monospace" font-size="10" fill="${txt}">
+        <text x="10" y="16">${esc(ev.asset.toUpperCase())} · ${night ? 'CAM IR' : 'CAM VIS'} · SIMULATION</text>
+        <text x="10" y="30">${stamp}</text>
+        <text x="10" y="222">${esc(G.fmtPos(ev.pos))}  CAP ${ev.heading}°  ${ev.sog.toFixed(1)} ND</text>
+        <text x="390" y="16" text-anchor="end">${ev.id}</text>
+      </g>
+      <path d="M180 100 h12 M208 100 h12 M200 80 v12 M200 108 v12" stroke="${night ? '#7fff9f' : '#ffd166'}" stroke-width="1.5"/>
+    </svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
+  function stateLabel(a) {
+    const m = { base: 'À la base', patrouille: 'En patrouille', transit: 'En route', surveillance: 'Sur zone', recherche: 'Recherche', retour: 'Retour', maintenance: 'En maintenance' };
+    return m[a.state] || a.state;
+  }
+
+  function assetsPane() {
+    const { w, P } = state;
+    const typ = { usv: 'Drone de surface DIAMBAR', drone: 'Drone aérien de l\'État (intégré)', opv: 'Patrouilleur de haute mer' };
+    return `<h2>Moyens</h2><p class="hint">Les drones de surface DIAMBAR vérifient les alertes. La plateforme intègre aussi les drones aériens de l'État et les patrouilleurs de la Marine.</p>
+      <div class="assets">${w.assets.map((a) => {
+        const used = Math.min(1, a.usedMin / 60 / a.enduranceH);
+        const al = a.task ? P.alerts.find((x) => x.id === a.task.alertId) : null;
+        return `<div class="asset"><div class="top"><span class="name">${esc(a.name)}</span><span class="chip ${a.task ? 'run' : ''}">${stateLabel(a)}</span></div>
+          <div class="type">${typ[a.type]} · ${a.kn} nœuds · radar ${a.detectLarge} milles${a.type !== 'opv' ? ` · autonomie ${a.enduranceH} h` : ''}</div>
+          ${a.type !== 'opv' ? `<div class="bar" title="Autonomie consommée"><i style="width:${Math.round((1 - used) * 100)}%"></i></div>` : ''}
+          ${al ? `<div class="hint">Mission : ${al.id} ${esc(al.title)}</div><div class="row"><button class="btn" type="button" data-open="${al.id}">Ouvrir l'alerte</button> <button class="btn" type="button" data-recall="${a.id}">Rappeler</button></div>` : ''}
+          ${a.maintenance ? '<div class="hint">Indisponible : arrêt technique au port de Dakar.</div>' : ''}
+        </div>`;
+      }).join('')}</div>`;
+  }
+
+  function shipsPane() {
+    const { P } = state;
+    const q = state.search.trim().toLowerCase();
+    const reg = D.registry.filter((r) => !q || (r.name + r.imo).toLowerCase().includes(q));
+    const iuu = D.iuuList.filter((r) => !q || (r.name + r.imo).toLowerCase().includes(q));
+    let check = '';
+    if (q.length >= 3) {
+      const hitIuu = D.iuuList.find((r) => r.imo.toLowerCase() === q || r.name.toLowerCase() === q);
+      const hitReg = D.registry.find((r) => r.imo.toLowerCase() === q || r.name.toLowerCase() === q);
+      const tr = [...P.tracks.values()].find((t) => (t.imo || '').toLowerCase() === q || (t.label || '').toLowerCase().startsWith(q));
+      if (hitIuu) check = `<div class="check" style="border-color:var(--crit)">Inscrit sur une liste INN : <b>${esc(hitIuu.name)}</b> (${esc(hitIuu.source)}). Refuser l'entrée au port et alerter la Marine.</div>`;
+      else if (hitReg) check = `<div class="check" style="border-color:var(--ok)">Navire autorisé : <b>${esc(hitReg.name)}</b>, licence ${esc(hitReg.licence)}, au-delà de ${hitReg.minNm} milles.</div>`;
+      else if (tr && tr.imo) check = `<div class="check">Navire suivi (${esc(tr.label)}), absent du registre et des listes INN.</div>`;
+    }
+    const tracked = [...P.tracks.values()].filter((t) => t.lastPos && state.w.t - t.lastT < 120);
+    return `<h2>Contrôle des navires</h2>
+      <p class="hint">Vérification automatique de l'identité (numéro OMI), des licences et des listes de navires INN. Elle répond aux défaillances relevées par l'Union européenne en 2024.</p>
+      <input class="search" id="shipSearch" type="search" placeholder="Nom ou numéro OMI (ex. SIM-7700215)" value="${esc(state.search)}" aria-label="Rechercher un navire">
+      ${check}
+      <h3>Registre des navires autorisés (DPSP)</h3>
+      <div class="tablewrap"><table><thead><tr><th>Navire</th><th>OMI</th><th>Licence</th><th>Dernier VMS</th></tr></thead><tbody>
+      ${reg.map((r) => { const t = P.tracks.get('imo:' + r.imo); return `<tr><td>${esc(r.name)}</td><td class="mono">${r.imo}</td><td>${esc(r.licence)}</td><td class="mono">${t && t.lastVms ? hhmm(t.lastVms.t) : '–'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <h3>Listes INN (fictives)</h3>
+      <div class="tablewrap"><table><thead><tr><th>Navire</th><th>OMI</th><th>Source</th><th>Depuis</th></tr></thead><tbody>
+      ${iuu.map((r) => { const seen = P.tracks.get('imo:' + r.imo); return `<tr class="${seen ? 'hit' : ''}"><td>${esc(r.name)}${seen ? ' · suivi sous le nom ' + esc(seen.label) : ''}</td><td class="mono">${r.imo}</td><td>${esc(r.source)}</td><td class="mono">${r.since}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <h3>Pistes actives (${tracked.length})</h3>
+      <div class="tablewrap"><table><thead><tr><th>Piste</th><th>Sources</th><th>Vu</th></tr></thead><tbody>
+      ${tracked.sort((a, b) => b.lastT - a.lastT).slice(0, 40).map((t) => `<tr><td>${esc(t.label)}</td><td>${[...t.sources].join(', ')}</td><td class="mono">${hhmm(t.lastT)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+
+  function journalPane() {
+    const { P } = state;
+    const k = { sat: 'Satellite', alert: 'Alerte', verif: 'Preuve', asset: 'Moyen', decision: 'Décision' };
+    return `<h2>Journal</h2><div class="row" style="margin-bottom:8px"><button class="btn" type="button" id="copyJournal">Copier le journal (JSON)</button> <span class="hint" id="copyMsg"></span></div>
+      ${P.journal.length ? `<ul class="journal">${P.journal.map((e) => `<li><time>${hhmm(e.t)}</time><span class="k ${e.type}">${k[e.type]}</span><span>${esc(e.text)}</span></li>`).join('')}</ul>` : '<div class="empty">Le journal se remplit dès le lancement de la simulation.</div>'}`;
+  }
+
+  function systemPane() {
+    const { P, w } = state;
+    const rows = Object.entries(PLATFORM.RULES).map(([k, r]) => {
+      const L = P.learn[k];
+      const p = L.a / (L.a + L.b);
+      return `<div class="r"><span>${esc(r.label)}</span><span class="meter"><i style="width:${Math.round(p * 100)}%"></i></span><span class="n">${Math.round(p * 100)} % · ${L.n}</span></div>`;
+    }).join('');
+    const passes = w.pendingSat.slice().sort((a, b) => a.t - b.t).map((p) => `<li>${hhmm(p.t)} · ${esc(p.name)}${p.done ? ' · effectué' : ''}</li>`).join('');
+    return `<h2>Apprentissage</h2>
+      <p class="hint">Fiabilité de chaque règle, mise à jour après chaque vérification sur place (pourcentage d'alertes confirmées · nombre de vérifications). Le score des nouvelles alertes en tient compte.</p>
+      <div class="learn">${rows}</div>
+      <h2 style="margin-top:18px">Modèle drones-satellite</h2>
+      <p>${state.srModel ? 'Activé.' : 'Désactivé.'} Des images de drones aériens, prises au moment des passages satellites, servent de vérité terrain pour entraîner la détection des pirogues, de leurs sillages et des rassemblements sur les plages.</p>
+      <p class="hint">Dans la simulation, la probabilité de détecter une pirogue au radar passe de 12 % à 55 %, et celle de repérer un rassemblement sur une plage de 15 % à 90 %. Ces valeurs illustrent l'objectif de recherche, ce ne sont pas des performances mesurées.</p>
+      <h2 style="margin-top:18px">Passages satellites</h2><ul class="hint">${passes}</ul>
+      <h2 style="margin-top:18px">Sources de données</h2>
+      <ul class="hint">
+        <li>AIS : toutes les 4 min près des côtes, 12 min au large (AIS satellite).</li>
+        <li>VMS : toutes les 60 min, via un partenariat avec la DPSP.</li>
+        <li>Satellites : radar Sentinel-1 gratuit à heures fixes, acquisitions commerciales sur commande.</li>
+        <li>Moyens : radars et caméras des drones de surface, des drones aériens et des patrouilleurs.</li>
+      </ul>
+      <div class="note">Démonstrateur. Navires, numéros OMI et listes fictifs. Limites maritimes calculées par tampon géométrique à partir des côtes Natural Earth : tracés indicatifs, non officiels. La ZEE indicative couvre environ ${GEO.zeeAreaKm2.toLocaleString('fr-FR')} km².</div>`;
+  }
+
+  // ---------- Actions ----------
+  function openAlert(id) {
+    state.tab = 'alerts'; state.selAlert = id;
+    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === 'alerts')));
+    drawSelection(); renderPanel();
+    $('#pane').scrollTop = 0;
+  }
+
+  function onPaneClick(e) {
+    const t = e.target.closest('button');
+    if (!t) return;
+    const { w, P } = state;
+    if (t.dataset.alert) { openAlert(t.dataset.alert); const a = P.alerts.find((x) => x.id === t.dataset.alert); if (a) map.panTo(a.pos); return; }
+    if (t.dataset.filter) { state.filter = t.dataset.filter; renderPanel(); return; }
+    if (t.hasAttribute('data-back')) { state.selAlert = null; drawSelection(); renderPanel(); return; }
+    if (t.dataset.open) { openAlert(t.dataset.open); return; }
+    if (t.dataset.recall) {
+      const a = w.assets.find((x) => x.id === t.dataset.recall);
+      if (a && a.task) {
+        const al = P.alerts.find((x) => x.id === a.task.alertId);
+        if (al && al.assigned === a.id && !al.verdict) { al.assigned = null; al.status = 'nouvelle'; }
+        if (al && al.followedBy === a.id) al.followedBy = null;
+        a.task = null; a.state = 'retour';
+      }
+      state.dirty = true; return;
+    }
+    const al = P.alerts.find((x) => x.id === state.selAlert);
+    if (!al) return;
+    if (t.dataset.assign) {
+      const as = PLATFORM.assign(P, w, al.id, t.dataset.assign, t.dataset.purpose);
+      if (as) toast(`${as.name} engagé sur ${al.id}.`);
+      if (!state.playing) setPlaying(true);
+      state.dirty = true; renderPanel(); return;
+    }
+    if (t.dataset.sat) {
+      const tr = P.tracks.get(al.trackId);
+      const p = SIM.orderSat(w, t.dataset.sat, (tr && tr.lastPos ? tr.lastPos : al.pos).slice());
+      P.journal.unshift({ t: w.t, type: 'sat', text: `${p.name} commandée sur ${al.id}, image attendue à ${hhmm(p.t)}.` });
+      toast(`${p.name} commandée, image attendue à ${hhmm(p.t)}.`, 'sat');
+      state.dirty = true; return;
+    }
+    if (t.dataset.decide) { PLATFORM.decide(P, w, al.id, t.dataset.decide); toast(`${al.id} : ${al.decision}.`); state.dirty = true; renderPanel(); return; }
+    if (t.hasAttribute('data-center')) { const tr = P.tracks.get(al.trackId); map.setView(tr && tr.lastPos ? tr.lastPos : al.pos, Math.max(map.getZoom(), 9)); }
+    if (t.id === 'copyJournal') return;
+  }
+
+  function bind() {
+    $('#play').addEventListener('click', () => setPlaying(!state.playing));
+    $('#speeds').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      state.speed = Number(b.dataset.s);
+      document.querySelectorAll('#speeds button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    });
+    $('#reset').addEventListener('click', () => { setPlaying(false); reset(0); toast('Scénario remis à 18 h 30.'); });
+    const jump = $('#jump');
+    D.cases.forEach((c) => { const o = document.createElement('option'); o.value = c.id; o.textContent = `${hhmm(c.t)} · ${c.label}`; jump.appendChild(o); });
+    jump.addEventListener('change', () => {
+      const c = D.cases.find((x) => x.id === jump.value);
+      jump.value = '';
+      if (!c) return;
+      setPlaying(false);
+      reset(c.t, c);
+      map.setView(c.focus, c.zoom);
+      toast(`Cas : ${c.label}. Simulation avancée à ${hhmm(c.t)}.`);
+      const al = state.P.alerts.filter((a) => !a.closed).sort((a, b) => b.created - a.created)[0];
+      if (al) openAlert(al.id);
+    });
+    $('#truth').addEventListener('change', (e) => { state.truth = e.target.checked; if (!state.truth) { layers.truth.clearLayers(); layers.markers.truth.clear(); } });
+    $('#srModel').addEventListener('change', (e) => { state.srModel = e.target.checked; state.w.opts.srModel = state.srModel; toast(state.srModel ? 'Modèle drones-satellite activé pour les prochains passages.' : 'Modèle drones-satellite désactivé : détection satellite brute.'); state.dirty = true; });
+    document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+    $('#pane').addEventListener('click', onPaneClick);
+    $('#pane').addEventListener('input', (e) => { if (e.target.id === 'shipSearch') { state.search = e.target.value; renderPanel(); } });
+    $('#pane').addEventListener('click', (e) => {
+      if (e.target.id !== 'copyJournal') return;
+      const data = JSON.stringify({ scenario: 'DIAMBAR 2027 · démonstrateur', journal: state.P.journal.map((j) => ({ heure: hhmm(j.t), type: j.type, texte: j.text })), alertes: state.P.alerts.map((a) => ({ id: a.id, regle: a.rule, navire: a.label, score: a.score, statut: a.status, preuve: a.evidence || null })) }, null, 2);
+      const done = (msg) => { const m = $('#copyMsg'); if (m) m.textContent = msg; };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data).then(() => done('Copié.'), () => done('Copie refusée par le navigateur.'));
+      else done('Copie indisponible.');
+    });
+    $('#helpBtn').addEventListener('click', () => { $('#help').hidden = false; });
+    $('#helpClose').addEventListener('click', () => { $('#help').hidden = true; });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') $('#help').hidden = true;
+      if (e.key === ' ' && e.target === document.body) { e.preventDefault(); setPlaying(!state.playing); }
+    });
+  }
+
+  function boot() {
+    initMap();
+    bind();
+    reset(0);
+    let seen = false;
+    try { seen = localStorage.getItem('diambar-help') === '1'; localStorage.setItem('diambar-help', '1'); } catch (e) { /* stockage indisponible */ }
+    $('#help').hidden = seen;
+    requestAnimationFrame(frame);
+  }
+
+  if (window.L) boot(); else document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>
