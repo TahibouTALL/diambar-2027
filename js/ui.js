@@ -1,633 +1,984 @@
-// Interface opérateur : carte, alertes, moyens, contrôle des navires, journal.
+// Interface opérateur : boucle de simulation, frise du temps, alertes, preuves, moyens,
+// navires, journal, réglages, démo guidée.
 (function () {
   const D = window.DIAMBAR_DATA;
-  const GEO = window.DIAMBAR_GEO;
   const P_ = window.PLATFORM;
-  const $ = (s) => document.querySelector(s);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const $ = (s, el) => (el || document).querySelector(s);
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+  const esc = (s) => String(s === undefined || s === null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const hhmm = P_.hhmm;
+  const num = (v, d) => G.fmtNum(v, d === undefined ? 1 : d);
+  const dur = (m) => (m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}`);
+  const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } } };
 
-  const state = {
-    w: null, P: null, playing: false, speed: 10, acc: 0, tab: 'alerts', selAlert: null,
-    filter: 'ouvertes', truth: false, srModel: true, search: '', dirty: true, lastPanel: 0,
+  const S = {
+    w: null, P: null, playing: false, speed: 5, acc: 0, lastReal: 0,
+    tab: 'alerts', view: 'list', sel: {}, follow: null,
+    cat: 'all', status: 'open', jfilter: 'all', shipQuery: '',
+    truth: false, script: true, auto: true, srModel: true,
+    seenInc: 0, seenJournal: 0, busy: false, demo: null, focus: null,
+    paneHtml: '', lastPanel: 0, dirty: true, pointerDown: false, lastStepAt: 0,
+  };
+  window.__diambar = S;
+
+  const CAT = D.categories;
+  const catOf = (inc) => CAT[inc.cat] || CAT.peche;
+  const sev = (s) => (s >= 85 ? 'crit' : s >= 65 ? 'high' : s >= 45 ? 'mid' : 'low');
+  const SEV_LABEL = { crit: 'Critique', high: 'Élevé', mid: 'Moyen', low: 'Faible' };
+  const STATUS = {
+    nouvelle: ['Nouvelle', 'new'], 'en vérification': ['Vérification en cours', 'verif'], 'en suivi': ['Suivi en cours', 'verif'],
+    confirmée: ['Confirmée, suite à décider', 'conf'], infondée: ['Infondée', 'false'], 'cible non retrouvée': ['Cible non retrouvée', 'false'],
+    'intervention en cours': ['Intervention en cours', 'action'], arraisonnée: ['Navire arraisonné', 'action'], contrôlée: ['Contrôle effectué', 'done'],
+    'secours en route': ['Secours en route', 'action'], 'sauvetage en cours': ['Sauvetage en cours', 'action'], 'arraisonnement en cours': ['Arraisonnement en cours', 'action'],
+    secourue: ['Personnes secourues', 'done'], transmise: ['Dossier transmis', 'done'],
+    classée: ['Classée', 'done'], reclassée: ['Reclassée', 'done'], identifiée: ['Identifiée', 'done'],
+  };
+  const statusOf = (inc) => STATUS[inc.status] || [inc.status, 'new'];
+  const KIND = (k) => P_.kindLabel(k);
+  const ASSET_GROUPS = [
+    { title: 'Drones de surface DIAMBAR', types: ['usv'] },
+    { title: 'Drones aériens de l\'État', types: ['drone'] },
+    { title: 'Marine nationale', types: ['opv', 'vedette'] },
+    { title: 'Armée de l\'air', types: ['mpa'] },
+  ];
+  const STATE_LABEL = {
+    base: 'À la base', prep: 'Préparation au départ', transit: 'En route', recherche: 'Recherche de la cible', surveillance: 'Sur zone, observation',
+    suivi: 'Suivi de la cible', secours: 'Sauvetage en cours', arraisonnement: 'Arraisonnement', retour: 'Retour', turnaround: 'Ravitaillement',
+    maintenance: 'En maintenance', patrouille: 'En patrouille',
   };
 
-  // ---------- Temps ----------
-  const DAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
-  function clockText(t) {
+  // ---------- Simulation ----------
+  function newWorld() {
+    S.w = SIM.createWorld({ srModel: S.srModel });
+    S.P = P_.createPlatform();
+    S.P.auto = S.auto; S.P.script = S.script;
+    S.seenInc = 0; S.seenJournal = 0; S.acc = 0;
+    RENDER.smooth.clear(); RENDER.assetTrail.clear(); CAMERA.clear();
+  }
+  function stepOnce(quiet) {
+    const w = S.w, P = S.P;
+    SIM.step(w, 1);
+    for (const r of w.reports) P_.ingest(P, w, r);
+    w.reports.length = 0;
+    P_.evaluate(P, w);
+    P_.update(P, w);
+    if (!quiet) announce();
+    else S.seenInc = P.incidents.length;
+  }
+  function announce() {
+    const P = S.P;
+    for (; S.seenInc < P.incidents.length; S.seenInc++) {
+      const inc = P.incidents[S.seenInc];
+      toast(inc, `Nouvelle alerte ${inc.id}`, `${inc.title} : ${inc.label}`);
+    }
+    // Sauvetages terminés : on prévient l'opérateur
+    for (const j of P.journal) {
+      if (j.n <= S.seenJournal) break;
+      if (j.type === 'decision' && /recueilli/.test(j.text)) { const inc = P.incidents.find((i) => i.id === j.ref); if (inc) toast(inc, 'Sauvetage terminé', j.text.replace(/^A-\d+ : /, ''), 'ok'); }
+    }
+    S.seenJournal = P.jseq || 0;
+  }
+
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  async function seek(target, label) {
+    if (S.busy) return;
+    target = Math.max(0, Math.min(D.END_MIN, Math.round(target)));
+    const wasPlaying = S.playing;
+    setPlaying(false);
+    if (target < S.w.t) newWorld();
+    if (target === S.w.t) return;
+    S.busy = true;
+    const box = $('#busy'), bar = $('#busyBar');
+    const from = S.w.t, span = Math.max(1, target - from);
+    let shown = false;
+    const t0 = performance.now();
+    while (S.w.t < target) {
+      const f0 = performance.now();
+      while (S.w.t < target && performance.now() - f0 < 32) stepOnce(true);
+      if (!shown && performance.now() - t0 > 150) { $('#busyText').textContent = label || `Calcul de la situation à ${hhmm(target)}`; box.hidden = false; shown = true; }
+      bar.style.width = `${Math.round((100 * (S.w.t - from)) / span)}%`;
+      await nextFrame();
+    }
+    S.seenJournal = S.P.jseq || 0;
+    box.hidden = true; S.busy = false; S.dirty = true;
+    if (wasPlaying && !S.demo) setPlaying(true);
+  }
+
+  function setPlaying(on) {
+    if (on && S.w.t >= D.END_MIN) return;
+    S.playing = on;
+    $('#playBtn').classList.toggle('on', on);
+    $('#playBtn').setAttribute('aria-label', on ? 'Pause' : 'Lecture');
+  }
+
+  // ---------- Boucle principale ----------
+  function loop(now) {
+    const dt = Math.min(120, now - (S.lastReal || now));
+    S.lastReal = now;
+    if (S.playing && !S.busy) {
+      S.acc += (dt / 1000) * S.speed;
+      let n = Math.floor(S.acc);
+      if (n > 0) {
+        S.acc -= n;
+        n = Math.min(n, 40);
+        while (n-- > 0 && S.w.t < D.END_MIN) stepOnce(false);
+        S.lastStepAt = now;
+      }
+      if (S.w.t >= D.END_MIN) { setPlaying(false); S.acc = 0; toastText('Fin de la simulation : jeudi 15 octobre, 06 h 00. Le bilan est dans l\'onglet Système.'); }
+    }
+    const frac = S.playing ? S.acc : 1;
+    const tDisp = S.w.t - 1 + frac;
+    if (S.follow) followTarget(tDisp);
+    RENDER.frame({ w: S.w, P: S.P, t: tDisp, frac, now, realDt: dt, sel: selView(), truth: S.truth, focus: S.focus, map: true });
+    updateClock();
+    drawTimeline(now);
+    if (!S.busy && !S.pointerDown && (S.dirty || now - S.lastPanel > 450)) { renderPane(); S.lastPanel = now; S.dirty = false; }
+    requestAnimationFrame(loop);
+  }
+
+  function selView() {
+    const v = {};
+    if (S.sel.alertId) { const inc = S.P.incidents.find((i) => i.id === S.sel.alertId); if (inc) v.trackId = inc.trackId; }
+    if (S.sel.trackId) v.trackId = S.sel.trackId;
+    if (S.sel.assetId) v.assetId = S.sel.assetId;
+    return v;
+  }
+  function followTarget(t) {
+    const map = RENDER.map;
+    let pos = null;
+    if (S.follow.type === 'asset') { const a = S.w.assets.find((x) => x.id === S.follow.id); if (a) pos = a.pos; }
+    else { const tr = S.P.tracks.get(S.follow.id); if (tr && tr.lastPos) pos = P_.drPos(tr, t); }
+    if (pos && !map._animatingZoom && !map._panAnim) map.panTo(pos, { animate: false });
+  }
+
+  // ---------- Horloge ----------
+  const DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  let lastClock = '';
+  function updateClock() {
+    const t = S.w.t;
     const d = new Date(D.START + t * 60000);
-    return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} oct. ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    const key = t + (S.playing ? 'p' : '');
+    if (key === lastClock) return;
+    lastClock = key;
+    $('#clockDay').textContent = `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} octobre`;
+    $('#clockTime').textContent = hhmm(t);
+    const night = SIM.isNight(t);
+    const sun = $('#sunState');
+    sun.textContent = night ? (t >= D.moon.set || t < D.sun.rise ? 'Nuit sans lune' : 'Nuit') : 'Jour';
+    sun.classList.toggle('night', night);
+    renderEnv();
   }
-  const hhmm = (t) => clockText(t).slice(-5);
-  const dur = (m) => (m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}`);
-
-  // ---------- Sévérité ----------
-  const sev = (s) => (s >= 85 ? 'crit' : s >= 65 ? 'high' : s >= 45 ? 'mid' : 'low');
-  const sevLabel = { crit: 'Critique', high: 'Haute', mid: 'Moyenne', low: 'Basse' };
-  const sevColor = (s) => css('--' + sev(s));
-
-  // ---------- Carte ----------
-  let map; const layers = {};
-  function initMap() {
-    map = L.map('map', { zoomControl: true, attributionControl: true, minZoom: 6, maxZoom: 13, preferCanvas: false, worldCopyJump: false })
-      .setView([14.35, -17.75], 7);
-    window.__diambarMap = map;
-    map.attributionControl.setPrefix(false).addAttribution('Côtes : Natural Earth · Limites indicatives');
-    map.setMaxBounds([[10.5, -23], [18.5, -11]]);
-
-    const land = css('--land'), landLine = css('--land-line');
-    L.geoJSON(GEO.zee, { style: { color: css('--accent'), weight: 1.4, dashArray: '6 5', fill: false }, interactive: false }).addTo(map);
-    L.geoJSON(GEO.gambia, { style: { color: css('--muted'), weight: 0.8, dashArray: '2 4', fillColor: '#000', fillOpacity: 0.18 }, interactive: false }).addTo(map);
-    L.geoJSON(GEO.band12, { style: { color: css('--muted'), weight: 0.9, fill: false }, interactive: false }).addTo(map);
-    L.geoJSON(GEO.band6, { style: { color: css('--own'), weight: 0.8, opacity: 0.7, fillColor: css('--own'), fillOpacity: 0.07 }, interactive: false }).addTo(map);
-    L.geoJSON(GEO.land, { style: { color: landLine, weight: 0.8, fillColor: land, fillOpacity: 1 }, interactive: false }).addTo(map);
-
-    D.amps.forEach((a) => L.circle(a.pos, { radius: a.rNm * 1852, color: css('--ok'), weight: 1, fillOpacity: 0.16 }).bindTooltip(a.name + ' (indicative)').addTo(map));
-    D.offshore.forEach((o) => L.circle(o.pos, { radius: o.rNm * 1852, color: '#9fb6ff', weight: 1, dashArray: '3 3', fillOpacity: 0.06 }).bindTooltip(o.name).addTo(map));
-    D.beaches.forEach((b) => L.circleMarker(b.pos, { radius: 3, color: css('--high'), weight: 1, fillOpacity: 0.9 }).bindTooltip('Plage de départ surveillée : ' + b.name).addTo(map));
-
-    const lbl = (pos, text, cls) => L.marker(pos, { interactive: false, icon: L.divIcon({ className: '', html: `<div class="mk-label ${cls || ''}" style="opacity:.75">${text}</div>`, iconSize: [0, 0] }) }).addTo(map);
-    lbl([15.0, -16.62], 'SÉNÉGAL'); lbl([16.5, -15.9], 'MAURITANIE'); lbl([13.32, -16.2], 'GAMBIE'); lbl([12.05, -15.6], 'GUINÉE-BISSAU');
-    lbl([13.32, -18.6], 'Eaux gambiennes'); lbl([15.45, -19.75], 'ZEE (indicative)');
-    D.ports.forEach((p) => L.circleMarker(p.pos, { radius: 3.5, color: css('--fg'), weight: 1, fillColor: css('--ink'), fillOpacity: 1 }).bindTooltip(p.name).addTo(map));
-
-    layers.tracks = L.layerGroup().addTo(map);
-    layers.truth = L.layerGroup().addTo(map);
-    layers.assets = L.layerGroup().addTo(map);
-    layers.alerts = L.layerGroup().addTo(map);
-    layers.overlay = L.layerGroup().addTo(map);
-    layers.markers = { tracks: new Map(), truth: new Map(), assets: new Map(), alerts: new Map(), ranges: new Map(), routes: new Map() };
+  function renderEnv() {
+    const t = S.w.t, wx = D.weather;
+    const next = S.w.pendingSat.filter((p) => !p.done).sort((a, b) => a.t - b.t)[0];
+    $('#envCard').innerHTML = `<span><b>Vent</b> ${wx.windDir} ${wx.windKn} nœuds</span><span><b>Houle</b> ${num(wx.swellM)} m</span><span><b>Lune</b> ${D.moon.illum} %, ${t >= D.moon.set ? 'couchée' : `se couche à ${hhmm(D.moon.set)}`}</span>${next ? `<span><b>Prochain satellite</b> ${esc(next.name)} à ${hhmm(next.t)}</span>` : ''}`;
   }
 
-  function shipSvg(kind, color, rot) {
-    if (kind === 'unknown') return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="5" y="5" width="8" height="8" transform="rotate(45 9 9)" fill="none" stroke="${color}" stroke-width="1.8"/></svg>`;
-    if (kind === 'small') return `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="transform:rotate(${rot}deg)"><path d="M7 1 L10 12 L7 10 L4 12 Z" fill="${color}"/></svg>`;
-    return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" style="transform:rotate(${rot}deg)"><path d="M9 1 L15 16 L9 12.5 L3 16 Z" fill="${color}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
+  // ---------- Frise du temps ----------
+  const TL = { hoverT: null, drag: false };
+  function tlGeom() {
+    const cv = $('#tlCanvas');
+    const r = cv.getBoundingClientRect();
+    return { cv, W: r.width, H: r.height, x: (t) => 12 + (t / D.END_MIN) * (r.width - 24), t: (x) => ((x - 12) / (r.width - 24)) * D.END_MIN };
   }
-
-  function assetSvg(a) {
-    const c = a.state === 'maintenance' ? css('--muted') : css('--own');
-    if (a.type === 'drone') return `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style="transform:rotate(${a.heading}deg)"><path d="M11 2 L13 10 L21 13 L13 13 L12 19 L14 21 L8 21 L10 19 L9 13 L1 13 L9 10 Z" fill="${c}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
-    if (a.type === 'opv') return `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style="transform:rotate(${a.heading}deg)"><path d="M11 1 L15 7 L15 20 L7 20 L7 7 Z" fill="${c}" stroke="${css('--ink')}" stroke-width="0.8"/></svg>`;
-    return `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="6.5" fill="${c}" stroke="${css('--ink')}" stroke-width="1"/><path d="M9 4 L12 12 L9 10.5 L6 12 Z" fill="${css('--ink')}" transform="rotate(${a.heading} 9 9)"/></svg>`;
-  }
-
-  function upsertMarker(store, group, key, pos, html, size, tooltip, onClick) {
-    let m = store.get(key);
-    const icon = L.divIcon({ className: 'mk', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
-    if (!m) {
-      m = L.marker(pos, { icon, keyboard: false }).addTo(group);
-      if (tooltip) m.bindTooltip(tooltip, { direction: 'top', offset: [0, -8] });
-      if (onClick) m.on('click', onClick);
-      store.set(key, m);
-    } else {
-      m.setLatLng(pos);
-      if (m._lastHtml !== html) m.setIcon(icon);
-      if (tooltip && m.getTooltip()) m.setTooltipContent(tooltip);
+  let tlCache = { key: '' };
+  function drawTimeline(now) {
+    const g = tlGeom();
+    const { cv, W, H } = g;
+    const dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); tlCache.key = ''; }
+    const key = `${S.w.t}|${TL.hoverT}|${S.P.incidents.length}|${W}|${Math.floor(now / 500) % 2}`;
+    if (key === tlCache.key) return;
+    tlCache.key = key;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const x = g.x;
+    const yBand = 14, hBand = H - 28;
+    // Jour et nuit
+    ctx.fillStyle = '#F4F7FA'; ctx.fillRect(x(0), yBand, x(D.END_MIN) - x(0), hBand);
+    ctx.fillStyle = '#DCE3EC'; ctx.fillRect(x(0), yBand, x(D.sun.rise) - x(0), hBand);
+    ctx.fillRect(x(D.sun.set), yBand, x(D.END_MIN) - x(D.sun.set), hBand);
+    ctx.fillStyle = '#CDD6E2'; ctx.fillRect(x(D.moon.set), yBand, x(D.END_MIN) - x(D.moon.set), hBand);
+    // Temps écoulé
+    ctx.fillStyle = 'rgba(9,127,237,0.10)'; ctx.fillRect(x(0), yBand, x(S.w.t) - x(0), hBand);
+    // Heures
+    ctx.font = '600 11px "Barlow Condensed", "Arial Narrow", sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+    for (let h = 0; h <= 24; h++) {
+      const t = h * 60, X = x(t);
+      ctx.fillStyle = '#9AA8B8'; ctx.fillRect(Math.round(X), yBand + hBand - (h % 3 ? 4 : 8), 1, h % 3 ? 4 : 8);
+      if (h % 3 === 0 && (W > 520 || h % 6 === 0)) { ctx.fillStyle = '#5D6E84'; ctx.fillText(hhmm(t), X, yBand + hBand + 2); }
     }
-    m._lastHtml = html; m._seen = true;
-    return m;
-  }
-
-  function sweep(store, group) {
-    store.forEach((m, k) => { if (!m._seen) { group.removeLayer(m); store.delete(k); } m._seen = false; });
-  }
-
-  function renderMap() {
-    const { w, P } = state;
-    const M = layers.markers;
-    // Pistes de la plateforme
-    const alertByTrack = {};
-    P.alerts.forEach((a) => { if (!a.closed && (!alertByTrack[a.trackId] || alertByTrack[a.trackId].score < a.score)) alertByTrack[a.trackId] = a; });
-    P.tracks.forEach((tr) => {
-      if (!tr.lastPos || w.t - tr.lastT > 240) return;
-      const stale = w.t - tr.lastT > 30;
-      const al = alertByTrack[tr.id];
-      const color = al ? sevColor(al.score) : tr.unknown ? '#ffffff' : (stale ? css('--muted') : css('--fg'));
-      const kind = tr.unknown && !tr.visual ? 'unknown' : tr.cls === 'small' ? 'small' : 'large';
-      const html = `<div style="opacity:${stale ? 0.55 : 1}">${shipSvg(kind, color, tr.cog || 0)}</div>`;
-      const tip = `<b>${esc(tr.label)}</b><br>${[...tr.sources].join(' · ')}<br>vu à ${hhmm(tr.lastT)}${tr.sog !== undefined ? ` · ${tr.sog.toFixed(1)} nd` : ''}`;
-      upsertMarker(M.tracks, layers.tracks, tr.id, tr.lastPos, html, 18, tip, al ? () => openAlert(al.id) : null);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#5D6E84';
+    if (W > 600) { ctx.fillText('Lever 07:02', x(D.sun.rise) + 4, 1); ctx.fillText('Coucher 18:51', x(D.sun.set) + 4, 1); ctx.fillText('Lune couchée', x(D.moon.set) + 4, 1); }
+    // Passages satellites
+    D.satPasses.forEach((p) => {
+      const X = x(p.t);
+      ctx.fillStyle = p.sensor === 'radar' ? '#0560B8' : '#0E7490';
+      ctx.beginPath(); ctx.moveTo(X, yBand + 2); ctx.lineTo(X + 4, yBand + 6); ctx.lineTo(X, yBand + 10); ctx.lineTo(X - 4, yBand + 6); ctx.closePath(); ctx.fill();
     });
-    sweep(M.tracks, layers.tracks);
-
-    // Vérité terrain (mode formateur)
-    if (state.truth) {
-      w.ships.forEach((s) => {
-        const bad = (s.violations || []).length > 0;
-        const html = `<div style="opacity:.8">${shipSvg(s.cls === 'small' ? 'small' : 'large', bad ? '#ff6fd8' : '#7fa0b3', s.heading)}</div>`;
-        upsertMarker(M.truth, layers.truth, s.id, s.pos, html, 16, `<b>${esc(s.name)}</b> (vérité)${s.story ? '<br>' + esc(s.story) : ''}`);
-      });
+    // Alertes levées
+    S.P.incidents.forEach((inc) => {
+      const X = x(inc.created);
+      ctx.fillStyle = RENDER.SEV[sev(inc.score)]; ctx.fillRect(Math.round(X) - 1, yBand + hBand - 14, 2, 9);
+    });
+    // Cas du scénario
+    D.cases.forEach((c, i) => {
+      const X = x(c.t), Y = yBand + hBand / 2 - 3;
+      const active = S.demo !== null && D.cases[S.demo.i] === c;
+      ctx.beginPath(); ctx.arc(X, Y, active ? 6.5 : 5, 0, 7);
+      ctx.fillStyle = CAT[c.cat].color; ctx.fill();
+      ctx.lineWidth = active ? 2.5 : 1.5; ctx.strokeStyle = active ? '#F9B02A' : '#FFFFFF'; ctx.stroke();
+    });
+    // Curseur du temps présent
+    const Xn = x(S.w.t);
+    ctx.fillStyle = '#F9B02A'; ctx.fillRect(Xn - 1.5, yBand - 4, 3, hBand + 8);
+    ctx.fillStyle = '#031D45'; ctx.beginPath(); ctx.moveTo(Xn - 6, yBand - 9); ctx.lineTo(Xn + 6, yBand - 9); ctx.lineTo(Xn, yBand - 2); ctx.closePath(); ctx.fill();
+    if (TL.hoverT !== null) {
+      const Xh = x(TL.hoverT);
+      ctx.fillStyle = 'rgba(3,29,69,0.45)'; ctx.fillRect(Math.round(Xh), yBand, 1, hBand);
     }
-    sweep(M.truth, layers.truth);
-
-    // Moyens et portée des capteurs
-    w.assets.forEach((a) => {
-      const showLabel = a.state !== 'base' && a.state !== 'maintenance';
-      const label = `<div style="position:relative">${assetSvg(a)}${showLabel ? `<div class="mk-label" style="position:absolute;left:22px;top:3px;color:${css('--own')}">${esc(a.name)}</div>` : ''}</div>`;
-      upsertMarker(M.assets, layers.assets, a.id, a.pos, label, 22, `<b>${esc(a.name)}</b><br>${stateLabel(a)}`, () => { setTab('assets'); });
-      const active = a.state !== 'base' && a.state !== 'maintenance';
-      let rc = M.ranges.get(a.id);
-      if (active) {
-        if (!rc) { rc = L.circle(a.pos, { radius: a.detectLarge * 1852, color: css('--own'), weight: 0.7, opacity: 0.5, fillOpacity: 0.04, interactive: false }).addTo(layers.assets); M.ranges.set(a.id, rc); }
-        rc.setLatLng(a.pos);
-      } else if (rc) { layers.assets.removeLayer(rc); M.ranges.delete(a.id); }
-      let rt = M.routes.get(a.id);
-      if (a.task && a.task.estimate) {
-        const tgt = a.task.acquired ? (w.ships.find((s) => s.id === a.task.truthId) || {}).pos || a.task.estimate : a.task.estimate;
-        if (!rt) { rt = L.polyline([a.pos, tgt], { color: css('--own'), weight: 1.4, dashArray: '4 4', interactive: false }).addTo(layers.assets); M.routes.set(a.id, rt); }
-        rt.setLatLngs([a.pos, tgt]);
-      } else if (rt) { layers.assets.removeLayer(rt); M.routes.delete(a.id); }
-    });
-    sweep(M.assets, layers.assets);
-
-    // Alertes ouvertes : anneau pulsant pour les critiques et hautes
-    P.alerts.forEach((al) => {
-      if (al.closed || al.score < 65 || ['infondée', 'secourue', 'arraisonnée'].includes(al.status)) return;
-      const c = sevColor(al.score);
-      upsertMarker(M.alerts, layers.alerts, al.id, al.pos, `<div class="pulse" style="width:30px;height:30px;border-color:${c}"></div>`, 30, null, () => openAlert(al.id));
-    });
-    sweep(M.alerts, layers.alerts);
   }
-
-  // Trace de la piste sélectionnée
-  let selLine = null;
-  function drawSelection() {
-    if (selLine) { layers.overlay.removeLayer(selLine); selLine = null; }
-    const al = state.P.alerts.find((a) => a.id === state.selAlert);
-    if (!al) return;
-    const tr = state.P.tracks.get(al.trackId);
-    if (tr && tr.hist.length > 1) selLine = L.polyline(tr.hist.map((h) => h.pos), { color: css('--accent'), weight: 1.6, opacity: 0.85, interactive: false }).addTo(layers.overlay);
+  function nearestCase(t, g) {
+    let best = null, bd = 1e9;
+    D.cases.forEach((c) => { const d = Math.abs(g.x(c.t) - g.x(t)); if (d < bd) { bd = d; best = c; } });
+    return bd <= 8 ? best : null;
   }
-
-  function flashSwath(name, area) {
-    const shape = area ? L.circle(area, { radius: 60 * 1852 }) : L.geoJSON(GEO.zee);
-    shape.setStyle({ color: '#9fb6ff', weight: 1, fillColor: '#9fb6ff', fillOpacity: 0.16, interactive: false });
-    shape.addTo(layers.overlay);
-    setTimeout(() => layers.overlay.removeLayer(shape), 1800);
-    toast(`Passage satellite : ${name}`, 'sat');
+  function bindTimeline() {
+    const cv = $('#tlCanvas'), tip = $('#tlTip');
+    const tAt = (e) => { const g = tlGeom(); const r = cv.getBoundingClientRect(); return Math.max(0, Math.min(D.END_MIN, g.t(e.clientX - r.left))); };
+    cv.addEventListener('pointermove', (e) => {
+      const g = tlGeom(); const t = tAt(e);
+      TL.hoverT = t;
+      const c = nearestCase(t, g);
+      const pass = D.satPasses.find((p) => Math.abs(g.x(p.t) - g.x(t)) < 6);
+      tip.hidden = false;
+      tip.innerHTML = c ? `<b>${hhmm(c.t)}</b> ${esc(c.title)}` : pass ? `<b>${hhmm(pass.t)}</b> ${esc(pass.name)}, ${esc(pass.detail)}` : `<b>${hhmm(Math.round(t))}</b> Aller à cette heure`;
+      const r = cv.getBoundingClientRect();
+      tip.style.left = `${Math.max(4, Math.min(r.width - 220, e.clientX - r.left - 60))}px`;
+    });
+    cv.addEventListener('pointerleave', () => { TL.hoverT = null; tip.hidden = true; });
+    cv.addEventListener('click', (e) => {
+      const g = tlGeom(); const t = tAt(e);
+      const c = nearestCase(t, g);
+      if (c) openCase(D.cases.indexOf(c), false);
+      else seek(t);
+    });
   }
 
   // ---------- Notifications ----------
-  function toast(text, cls) {
+  function toast(inc, title, text, kind) {
+    const box = $('#toasts');
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `toast sev-${kind === 'ok' ? 'ok' : sev(inc.score)}`;
+    el.innerHTML = `<i></i><span><b>${esc(title)}</b>${esc(text)}</span>`;
+    el.addEventListener('click', () => { openAlert(inc.id, true); el.remove(); });
+    box.prepend(el);
+    while (box.children.length > 3) box.lastChild.remove();
+    setTimeout(() => el.classList.add('out'), 6500);
+    setTimeout(() => el.remove(), 7000);
+  }
+  function toastText(text) {
+    const box = $('#toasts');
     const el = document.createElement('div');
-    el.className = 'toast ' + (cls || '');
-    el.textContent = text;
-    $('#toasts').prepend(el);
-    setTimeout(() => el.remove(), 4200);
-    while ($('#toasts').children.length > 3) $('#toasts').lastChild.remove();
+    el.className = 'toast sev-info'; el.innerHTML = `<i></i><span>${esc(text)}</span>`;
+    box.prepend(el);
+    setTimeout(() => el.remove(), 7000);
   }
 
-  // ---------- Moteur ----------
-  function reset(targetT, caseDef) {
-    state.w = SIM.createWorld({ srModel: state.srModel });
-    state.P = P_.createPlatform();
-    state.selAlert = null;
-    Object.values(layers.markers).forEach((s) => s.forEach((m) => { m.remove(); }));
-    Object.values(layers.markers).forEach((s) => s.clear());
-    layers.tracks.clearLayers(); layers.truth.clearLayers(); layers.assets.clearLayers(); layers.alerts.clearLayers(); layers.overlay.clearLayers();
-    if (targetT) {
-      const prep = (caseDef && caseDef.prep) || [];
-      while (state.w.t < targetT) {
-        tick(1, true);
-        prep.forEach((pr) => {
-          if (pr.done) return;
-          const al = state.P.alerts.find((a) => a.rule === pr.rule);
-          if (al) { PLATFORM.assign(state.P, state.w, al.id, pr.asset, pr.purpose); pr.done = true; }
-        });
-      }
-      prep.forEach((pr) => { pr.done = false; });
-    }
-    state.dirty = true;
-    renderAll();
+  // ---------- Sélection ----------
+  function openAlert(id, fly) {
+    const inc = S.P.incidents.find((i) => i.id === id);
+    if (!inc) return;
+    S.sel = { alertId: id }; S.view = 'alert'; setTab('alerts', true);
+    if (fly) { const tr = S.P.tracks.get(inc.trackId); RENDER.flyTo((tr && tr.lastPos) || inc.pos, Math.max(RENDER.map.getZoom(), 9.5)); }
+    S.dirty = true;
   }
-
-  let seenAlerts = 0; let seenJournal = 0;
-  function tick(dt, silent) {
-    const { w, P } = state;
-    SIM.step(w, dt);
-    w.reports.forEach((r) => {
-      PLATFORM.ingest(P, r);
-      if (r.kind === 'sat' && !silent) flashSwath(r.name, r.area);
-    });
-    w.reports.length = 0;
-    PLATFORM.evaluate(P, w);
-    PLATFORM.update(P, w);
-    if (silent) { seenAlerts = P.alerts.length; seenJournal = P.journal.length; return; }
-    if (P.alerts.length > seenAlerts) {
-      P.alerts.slice(seenAlerts).forEach((a) => toast(`${a.id} · ${a.title} · ${a.label} (score ${a.score})`, a.score >= 85 ? 'crit' : ''));
-      seenAlerts = P.alerts.length; state.dirty = true;
-    }
-    if (P.journal.length !== seenJournal) { seenJournal = P.journal.length; state.dirty = true; }
+  function openTrack(id, fly) {
+    const tr = S.P.tracks.get(id);
+    if (!tr) return;
+    const inc = S.P.incidents.filter((i) => i.trackId === id).sort((a, b) => (a.closed - b.closed) || b.score - a.score)[0];
+    if (inc && !inc.closed) { openAlert(inc.id, fly); return; }
+    S.sel = { trackId: id }; S.view = 'track'; setTab('ships', true);
+    if (fly) RENDER.flyTo(tr.lastPos, Math.max(RENDER.map.getZoom(), 9.5));
+    S.dirty = true;
   }
-
-  let lastFrame = 0; let lastMap = 0;
-  function frame(ts) {
-    const dtReal = Math.min(0.25, (ts - (lastFrame || ts)) / 1000);
-    lastFrame = ts;
-    if (state.playing) {
-      state.acc += dtReal * state.speed;
-      while (state.acc >= 1) {
-        state.acc -= 1;
-        tick(1);
-        if (state.w.t >= D.END_MIN) { setPlaying(false); toast('Fin du scénario : jeudi 15 octobre, 9 h 00.'); break; }
-      }
-    }
-    if (ts - lastMap > 90) { lastMap = ts; renderMap(); renderTop(); }
-    if (state.dirty && ts - state.lastPanel > 400) { state.lastPanel = ts; state.dirty = false; renderPanel(); }
-    else if (ts - state.lastPanel > 1500) { state.lastPanel = ts; renderPanel(); }
-    requestAnimationFrame(frame);
+  function openAsset(id, fly) {
+    const a = S.w.assets.find((x) => x.id === id);
+    if (!a) return;
+    S.sel = { assetId: id }; S.view = 'asset'; setTab('assets', true);
+    if (fly) RENDER.flyTo(a.pos, Math.max(RENDER.map.getZoom(), 9));
+    S.dirty = true;
   }
-
-  function setPlaying(p) {
-    state.playing = p;
-    $('#play').textContent = p ? 'Pause' : 'Lecture';
-  }
-
-  // ---------- Indicateurs ----------
-  let covPts = null;
-  function coverage() {
-    if (!covPts) {
-      const r = G.rng(7); const b = G.bboxOf(GEO.zee); covPts = [];
-      while (covPts.length < 1400) { const p = [b.s + r() * (b.n - b.s), b.w + r() * (b.e - b.w)]; if (G.inFeature(p, GEO.zee)) covPts.push(p); }
-    }
-    const act = state.w.assets.filter((a) => a.state !== 'base' && a.state !== 'maintenance');
-    let n = 0;
-    covPts.forEach((p) => { if (act.some((a) => G.distNm(a.pos, p) <= a.detectLarge)) n++; });
-    return (100 * n) / covPts.length;
-  }
-
-  function renderTop() {
-    const { w, P } = state;
-    $('#clock').textContent = clockText(w.t);
-    $('#daynight').textContent = SIM.isNight(w.t) ? 'nuit' : 'jour';
-    const open = P.alerts.filter((a) => !a.closed && !['infondée', 'secourue', 'arraisonnée'].includes(a.status));
-    const by = { crit: 0, high: 0, mid: 0, low: 0 };
-    open.forEach((a) => by[sev(a.score)]++);
-    $('#kOpen').innerHTML = `${open.length}<span class="sevs">${['crit', 'high', 'mid'].map((k) => by[k] ? `<i style="background:${css('--' + k)}">${by[k]}</i>` : '').join('')}</span>`;
-    $('#kCov').innerHTML = `${coverage().toFixed(1)}<small>% de la ZEE</small>`;
-    const ver = P.alerts.filter((a) => a.verdict === 'confirmée' || a.verdict === 'infondée');
-    $('#kDelay').innerHTML = ver.length ? `${Math.round(ver.reduce((s, a) => s + a.delay, 0) / ver.length)}<small>min</small>` : '–';
-    $('#kFalse').innerHTML = ver.length ? `${Math.round((100 * ver.filter((a) => a.verdict === 'infondée').length) / ver.length)}<small>% de ${ver.length}</small>` : '–';
-    $('#kDoc').textContent = P.alerts.filter((a) => a.verdict === 'confirmée' && a.rule !== 'DISTRESS' && a.rule !== 'GATHER').length;
-    $('#kSaved').textContent = P.alerts.filter((a) => a.rescued).reduce((s, a) => s + ((w.ships.find((x) => x.id === a.truthId) || {}).persons || 0), 0);
-    const cnt = open.filter((a) => a.score >= 65).length;
-    $('#tabCount').hidden = !cnt; $('#tabCount').textContent = cnt;
-  }
-
-  // ---------- Panneau ----------
-  function setTab(t) {
-    state.tab = t;
-    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-    if (t !== 'alerts') state.selAlert = null;
-    drawSelection();
-    renderPanel();
-  }
-
-  function renderAll() { renderMap(); renderTop(); renderPanel(); }
-
-  function renderPanel() {
-    const pane = $('#pane');
-    const keepScroll = pane.scrollTop;
-    const focusId = document.activeElement && document.activeElement.id;
-    if (state.tab === 'alerts') pane.innerHTML = state.selAlert ? alertDetail() : alertList();
-    if (state.tab === 'assets') pane.innerHTML = assetsPane();
-    if (state.tab === 'ships') pane.innerHTML = shipsPane();
-    if (state.tab === 'journal') pane.innerHTML = journalPane();
-    if (state.tab === 'system') pane.innerHTML = systemPane();
-    pane.scrollTop = keepScroll;
-    if (focusId && document.getElementById(focusId)) { const el = document.getElementById(focusId); el.focus(); if (el.setSelectionRange && el.value) el.setSelectionRange(el.value.length, el.value.length); }
-  }
-
-  function statusChip(a) {
-    const map = { 'nouvelle': '', 'en vérification': 'run', 'confirmée': 'bad', 'infondée': 'ok', 'cible non retrouvée': '', 'transmise': 'ok', 'classée': '', 'arraisonnée': 'ok', 'secourue': 'ok' };
-    return `<span class="chip ${map[a.status] || ''}">${esc(a.status)}</span>`;
-  }
-
-  function alertList() {
-    const { P } = state;
-    const f = state.filter;
-    let list = P.alerts.slice();
-    if (f === 'ouvertes') list = list.filter((a) => !a.closed && !['infondée', 'secourue', 'arraisonnée'].includes(a.status));
-    list.sort((a, b) => (a.closed - b.closed) || (b.score - a.score) || (b.created - a.created));
-    const filt = `<div class="filters"><div class="seg" role="group" aria-label="Filtre">
-      <button type="button" data-filter="ouvertes" aria-pressed="${f === 'ouvertes'}">Ouvertes</button>
-      <button type="button" data-filter="toutes" aria-pressed="${f === 'toutes'}">Toutes (${P.alerts.length})</button></div>
-      <span class="hint">Classées par score de risque</span></div>`;
-    if (!list.length) {
-      return filt + `<div class="empty">${state.w.t < 20 ? 'Aucune alerte pour l\'instant. Lancez la lecture : le premier passage satellite a lieu à 18 h 52.' : 'Aucune alerte ouverte. La plateforme surveille les flux AIS, VMS et satellites.'}</div>`;
-    }
-    return filt + `<div class="alerts">${list.map((a) => `
-      <button class="alert ${a.closed ? 'closed' : ''}" type="button" data-alert="${a.id}">
-        <span class="stripe" style="background:${sevColor(a.score)}"></span>
-        <span class="body"><div class="t">${esc(a.title)}</div><div class="s">${a.id} · ${esc(a.label)} · ${hhmm(a.created)}</div></span>
-        <span class="meta"><span class="score" style="color:${sevColor(a.score)}">${a.score}</span>${statusChip(a)}</span>
-      </button>`).join('')}</div>`;
-  }
-
-  function nearest(types, pos, n) {
-    return state.w.assets.filter((a) => types.includes(a.type) && a.state !== 'maintenance' && !a.task)
-      .map((a) => ({ a, eta: P_.eta(a, pos) })).sort((x, y) => x.eta - y.eta).slice(0, n);
-  }
-
-  function alertDetail() {
-    const { P, w } = state;
-    const a = P.alerts.find((x) => x.id === state.selAlert);
-    if (!a) { state.selAlert = null; return alertList(); }
-    const tr = P.tracks.get(a.trackId);
-    const L = P.learn[a.rule];
-    const s = sev(a.score);
-    let h = `<button class="back" type="button" data-back>← Toutes les alertes</button>
-      <div class="detail-head"><div><h3>${esc(a.title)}</h3><div class="hint">${a.id} · levée à ${hhmm(a.created)} · ${statusChip(a)}</div></div>
-      <div class="bigscore"><span class="score" style="color:${sevColor(a.score)}">${a.score}</span><small>${sevLabel[s]}</small></div></div>
-      <dl class="kv">
-        <dt>Navire</dt><dd>${esc(a.label)}</dd>
-        <dt>Position</dt><dd>${G.fmtPos(tr && tr.lastPos ? tr.lastPos : a.pos)}</dd>
-        <dt>Dernier contact</dt><dd>${tr ? hhmm(tr.lastT) + ' · ' + [...tr.sources].join(', ') : '–'}</dd>
-        ${tr && tr.imo ? `<dt>Registre</dt><dd>${P_.regByImo[tr.imo] ? 'Autorisé · ' + esc(P_.regByImo[tr.imo].licence) : P_.iuuByImo[tr.imo] ? 'Liste INN · ' + esc(P_.iuuByImo[tr.imo].name) : 'Absent du registre'}</dd>` : ''}
-      </dl>
-      <h3>Pourquoi cette alerte</h3>
-      <ul class="factors">${a.factors.map((f) => `<li><span>${esc(f.txt)}</span><span>${f.pts ? (f.pts > 0 ? '+' : '') + f.pts : ''}</span></li>`).join('')}
-        <li><span>Base de la règle</span><span>${PLATFORM.RULES[a.rule].base}</span></li>
-        <li><span>Fiabilité apprise de la règle</span><span>${Math.round((100 * L.a) / (L.a + L.b))} %</span></li></ul>`;
-
-    if (a.evidence) h += evidenceCard(a);
-    if (a.outcome) h += `<div class="outcome">${esc(a.outcome)}</div>`;
-
-    h += '<div class="actions">';
-    const pos = tr && tr.lastPos ? tr.lastPos : a.pos;
-    if (!a.closed) {
-      if (a.rescue || a.rule === 'DISTRESS') {
-        if (!a.rescueBy && !a.rescued) {
-          const best = nearest(['opv', 'usv'], pos, 2);
-          h += `<div class="label">Sauvetage</div><div class="row">${best.map((b) => `<button class="btn danger" type="button" data-assign="${b.a.id}" data-purpose="rescue">Déclencher le sauvetage · ${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('') || '<span class="hint">Aucun moyen disponible.</span>'}</div>`;
-        } else if (a.rescueBy && !a.rescued) h += `<div class="outcome">Secours en route : ${esc(w.assets.find((x) => x.id === a.rescueBy).name)}. Le drone reste sur zone et transmet la position.</div>`;
-      }
-      if (!a.assigned && !a.verdict) {
-        const best = nearest(['usv', 'drone'], pos, 3);
-        h += `<div class="label">Vérifier sur place</div><div class="row">${best.map((b) => `<button class="btn own" type="button" data-assign="${b.a.id}" data-purpose="verification">${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('') || '<span class="hint">Tous les drones sont engagés.</span>'}</div>`;
-      } else if (a.assigned && !a.verdict) {
-        const as = w.assets.find((x) => x.id === a.assigned);
-        h += `<div class="outcome">${esc(as.name)} en route${as.task && as.task.acquired ? ', cible acquise par ses capteurs' : ''}${as.state === 'recherche' ? ', recherche en cours autour de la dernière position' : ''}. Arrivée estimée : ${dur(P_.eta(as, as.task ? as.task.estimate : pos))}.</div>`;
-      }
-      if (!a.followedBy && !a.rescued && !['infondée', 'arraisonnée'].includes(a.status)) {
-        const fol = nearest(['usv', 'drone'], pos, 2);
-        if (fol.length) h += `<div class="label">Suivre en continu</div><div class="row">${fol.map((b) => `<button class="btn" type="button" data-assign="${b.a.id}" data-purpose="suivi">${esc(b.a.name)} · ${dur(b.eta)}</button>`).join('')}</div>`;
-      } else if (a.followedBy) {
-        const fa = w.assets.find((x) => x.id === a.followedBy);
-        if (fa && fa.task) h += `<div class="outcome">${esc(fa.name)} suit la cible en continu et transmet sa position.</div>`;
-      }
-      const night = SIM.isNight(w.t);
-      h += `<div class="label">Autres moyens</div><div class="row">
-        <button class="btn" type="button" data-sat="${night ? 'radar' : 'optique'}">Commander une image ${night ? 'radar' : 'optique'} sur la zone (${night ? '50' : '35'} min)</button>`;
-      if (!a.intervention && a.rule !== 'DISTRESS' && a.rule !== 'GATHER') {
-        const opv = nearest(['opv'], pos, 1)[0];
-        if (opv) h += `<button class="btn" type="button" data-assign="${opv.a.id}" data-purpose="intervention">Intervention de la Marine · ${esc(opv.a.name)} · ${dur(opv.eta)}</button>`;
-      }
-      h += '</div>';
-      h += `<div class="label">Décision</div><div class="row">`;
-      if (a.rule === 'PORT_IUU') h += `<button class="btn danger" type="button" data-decide="port">Refuser l'accès au port</button>`;
-      if (a.verdict === 'confirmée' || a.intervened) h += `<button class="btn primary" type="button" data-decide="dpsp">Transmettre à la DPSP</button><button class="btn" type="button" data-decide="marine">Transmettre à la Marine</button>`;
-      h += `<button class="btn" type="button" data-decide="classer">Classer</button></div>`;
-    } else {
-      h += `<div class="outcome">${esc(a.decision || 'Alerte close.')}</div>`;
-    }
-    h += `<div class="row"><button class="btn" type="button" data-center>Centrer la carte</button></div></div>`;
-    return h;
-  }
-
-  function evidenceCard(a) {
-    const ev = a.evidence;
-    const ok = a.verdict === 'confirmée';
-    const d = new Date(ev.time);
-    const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
-    return `<div class="evidence">
-      <img alt="Image de vérification simulée : ${esc(ev.identity)}" src="${photo(ev, stamp)}">
-      <div class="ev-body">
-        <div class="verdict ${ok ? 'ok' : 'no'}">${ok ? 'Infraction confirmée' : 'Alerte infondée'} · ${esc(ev.asset)}</div>
-        <div>${esc(ev.observations)}</div>
-        <dl class="kv" style="margin:0">
-          <dt>Procès-verbal</dt><dd>${ev.id}</dd>
-          <dt>Horodatage</dt><dd>${stamp}</dd>
-          <dt>Position</dt><dd>${G.fmtPos(ev.pos)}</dd>
-          <dt>Identité</dt><dd>${esc(ev.identity)}</dd>
-          ${ev.persons ? `<dt>Personnes</dt><dd>environ ${ev.persons}</dd>` : ''}
-        </dl>
-        <div class="hash">Empreinte SHA-256 : ${ev.hash || 'calcul…'}</div>
-      </div></div>`;
-  }
-
-  // Image de vérification simulée (caméra optique de jour, thermique de nuit).
-  function photo(ev, stamp) {
-    const night = ev.night;
-    const bg1 = night ? '#0b0f0d' : '#5d7f93', bg2 = night ? '#1b2420' : '#2e4d61';
-    const hull = night ? '#f2f2e6' : '#1d262c', deck = night ? '#d8d8c8' : '#c9cfd2';
-    const t = ev.shipType;
-    let ship;
-    if (t === 'pirogue') ship = `<path d="M60 170 Q200 196 340 160 L330 176 Q200 206 70 184 Z" fill="${hull}"/><path d="M70 172 Q200 190 330 162" stroke="${night ? '#fff' : '#d9a33a'}" stroke-width="5" fill="none"/>${ev.persons ? Array.from({ length: 34 }, (_, i) => `<circle cx="${92 + i * 7}" cy="${163 + Math.sin(i) * 3 - (i % 3) * 3}" r="3.2" fill="${night ? '#ffffff' : '#2a1f1a'}"/>`).join('') : ''}`;
-    else if (t === 'cargo') ship = `<path d="M30 175 L370 175 L350 200 L50 200 Z" fill="${hull}"/>${[60, 110, 160, 210, 260].map((x) => `<rect x="${x}" y="150" width="44" height="25" fill="${night ? '#bfbfb0' : ['#a33', '#357', '#c83', '#2a6', '#777'][x / 50 % 5 | 0]}"/>`).join('')}<rect x="310" y="128" width="34" height="47" fill="${deck}"/>`;
-    else if (t === 'yacht') ship = `<path d="M100 178 L320 172 L300 196 L120 196 Z" fill="${night ? '#fff' : '#e9ecee'}"/><path d="M150 172 L260 168 L240 150 L175 152 Z" fill="${night ? '#ddd' : '#8fa3ad'}"/><rect x="120" y="168" width="22" height="9" fill="${night ? '#fff' : '#6b5a3a'}"/>`;
-    else if (t === 'frigorifique') ship = `<path d="M30 172 L370 172 L352 202 L48 202 Z" fill="${night ? '#fff' : '#f2f2f2'}"/><rect x="70" y="140" width="190" height="32" fill="${night ? '#e8e8dc' : '#dcdcdc'}"/><rect x="290" y="118" width="46" height="54" fill="${deck}"/>`;
-    else ship = `<path d="M70 176 L345 176 L325 200 L88 200 Z" fill="${hull}"/><rect x="230" y="140" width="56" height="36" fill="${deck}"/><path d="M110 176 L110 120 M110 122 L200 176" stroke="${deck}" stroke-width="3"/>${t === 'chalutier' ? `<path d="M340 186 L390 214" stroke="${night ? '#fff' : '#ddd'}" stroke-width="2"/>` : ''}`;
-    const txt = night ? '#ffffff' : '#ffffff';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 230">
-      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg1}"/><stop offset="1" stop-color="${bg2}"/></linearGradient></defs>
-      <rect width="400" height="230" fill="url(#g)"/>
-      <rect y="186" width="400" height="44" fill="${night ? '#141a17' : '#244154'}"/>
-      ${ship}
-      <g font-family="monospace" font-size="10" fill="${txt}">
-        <text x="10" y="16">${esc(ev.asset.toUpperCase())} · ${night ? 'CAM IR' : 'CAM VIS'} · SIMULATION</text>
-        <text x="10" y="30">${stamp}</text>
-        <text x="10" y="222">${esc(G.fmtPos(ev.pos))}  CAP ${ev.heading}°  ${ev.sog.toFixed(1)} ND</text>
-        <text x="390" y="16" text-anchor="end">${ev.id}</text>
-      </g>
-      <path d="M180 100 h12 M208 100 h12 M200 80 v12 M200 108 v12" stroke="${night ? '#7fff9f' : '#ffd166'}" stroke-width="1.5"/>
-    </svg>`;
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  }
-
-  function stateLabel(a) {
-    const m = { base: 'À la base', patrouille: 'En patrouille', transit: 'En route', surveillance: 'Sur zone', recherche: 'Recherche', retour: 'Retour', maintenance: 'En maintenance' };
-    return m[a.state] || a.state;
-  }
-
-  function assetsPane() {
-    const { w, P } = state;
-    const typ = { usv: 'Drone de surface DIAMBAR', drone: 'Drone aérien de l\'État (intégré)', opv: 'Patrouilleur de haute mer' };
-    return `<h2>Moyens</h2><p class="hint">Les drones de surface DIAMBAR vérifient les alertes. La plateforme intègre aussi les drones aériens de l'État et les patrouilleurs de la Marine.</p>
-      <div class="assets">${w.assets.map((a) => {
-        const used = Math.min(1, a.usedMin / 60 / a.enduranceH);
-        const al = a.task ? P.alerts.find((x) => x.id === a.task.alertId) : null;
-        return `<div class="asset"><div class="top"><span class="name">${esc(a.name)}</span><span class="chip ${a.task ? 'run' : ''}">${stateLabel(a)}</span></div>
-          <div class="type">${typ[a.type]} · ${a.kn} nœuds · radar ${a.detectLarge} milles${a.type !== 'opv' ? ` · autonomie ${a.enduranceH} h` : ''}</div>
-          ${a.type !== 'opv' ? `<div class="bar" title="Autonomie consommée"><i style="width:${Math.round((1 - used) * 100)}%"></i></div>` : ''}
-          ${al ? `<div class="hint">Mission : ${al.id} ${esc(al.title)}</div><div class="row"><button class="btn" type="button" data-open="${al.id}">Ouvrir l'alerte</button> <button class="btn" type="button" data-recall="${a.id}">Rappeler</button></div>` : ''}
-          ${a.maintenance ? '<div class="hint">Indisponible : arrêt technique au port de Dakar.</div>' : ''}
-        </div>`;
-      }).join('')}</div>`;
-  }
-
-  function shipsPane() {
-    const { P } = state;
-    const q = state.search.trim().toLowerCase();
-    const reg = D.registry.filter((r) => !q || (r.name + r.imo).toLowerCase().includes(q));
-    const iuu = D.iuuList.filter((r) => !q || (r.name + r.imo).toLowerCase().includes(q));
-    let check = '';
-    if (q.length >= 3) {
-      const hitIuu = D.iuuList.find((r) => r.imo.toLowerCase() === q || r.name.toLowerCase() === q);
-      const hitReg = D.registry.find((r) => r.imo.toLowerCase() === q || r.name.toLowerCase() === q);
-      const tr = [...P.tracks.values()].find((t) => (t.imo || '').toLowerCase() === q || (t.label || '').toLowerCase().startsWith(q));
-      if (hitIuu) check = `<div class="check" style="border-color:var(--crit)">Inscrit sur une liste INN : <b>${esc(hitIuu.name)}</b> (${esc(hitIuu.source)}). Refuser l'entrée au port et alerter la Marine.</div>`;
-      else if (hitReg) check = `<div class="check" style="border-color:var(--ok)">Navire autorisé : <b>${esc(hitReg.name)}</b>, licence ${esc(hitReg.licence)}, au-delà de ${hitReg.minNm} milles.</div>`;
-      else if (tr && tr.imo) check = `<div class="check">Navire suivi (${esc(tr.label)}), absent du registre et des listes INN.</div>`;
-    }
-    const tracked = [...P.tracks.values()].filter((t) => t.lastPos && state.w.t - t.lastT < 120);
-    return `<h2>Contrôle des navires</h2>
-      <p class="hint">Vérification automatique de l'identité (numéro OMI), des licences et des listes de navires INN. Elle répond aux défaillances relevées par l'Union européenne en 2024.</p>
-      <input class="search" id="shipSearch" type="search" placeholder="Nom ou numéro OMI (ex. SIM-7700215)" value="${esc(state.search)}" aria-label="Rechercher un navire">
-      ${check}
-      <h3>Registre des navires autorisés (DPSP)</h3>
-      <div class="tablewrap"><table><thead><tr><th>Navire</th><th>OMI</th><th>Licence</th><th>Dernier VMS</th></tr></thead><tbody>
-      ${reg.map((r) => { const t = P.tracks.get('imo:' + r.imo); return `<tr><td>${esc(r.name)}</td><td class="mono">${r.imo}</td><td>${esc(r.licence)}</td><td class="mono">${t && t.lastVms ? hhmm(t.lastVms.t) : '–'}</td></tr>`; }).join('')}
-      </tbody></table></div>
-      <h3>Listes INN (fictives)</h3>
-      <div class="tablewrap"><table><thead><tr><th>Navire</th><th>OMI</th><th>Source</th><th>Depuis</th></tr></thead><tbody>
-      ${iuu.map((r) => { const seen = P.tracks.get('imo:' + r.imo); return `<tr class="${seen ? 'hit' : ''}"><td>${esc(r.name)}${seen ? ' · suivi sous le nom ' + esc(seen.label) : ''}</td><td class="mono">${r.imo}</td><td>${esc(r.source)}</td><td class="mono">${r.since}</td></tr>`; }).join('')}
-      </tbody></table></div>
-      <h3>Pistes actives (${tracked.length})</h3>
-      <div class="tablewrap"><table><thead><tr><th>Piste</th><th>Sources</th><th>Vu</th></tr></thead><tbody>
-      ${tracked.sort((a, b) => b.lastT - a.lastT).slice(0, 40).map((t) => `<tr><td>${esc(t.label)}</td><td>${[...t.sources].join(', ')}</td><td class="mono">${hhmm(t.lastT)}</td></tr>`).join('')}
-      </tbody></table></div>`;
-  }
-
-  function journalPane() {
-    const { P } = state;
-    const k = { sat: 'Satellite', alert: 'Alerte', verif: 'Preuve', asset: 'Moyen', decision: 'Décision' };
-    return `<h2>Journal</h2><div class="row" style="margin-bottom:8px"><button class="btn" type="button" id="copyJournal">Copier le journal (JSON)</button> <span class="hint" id="copyMsg"></span></div>
-      ${P.journal.length ? `<ul class="journal">${P.journal.map((e) => `<li><time>${hhmm(e.t)}</time><span class="k ${e.type}">${k[e.type]}</span><span>${esc(e.text)}</span></li>`).join('')}</ul>` : '<div class="empty">Le journal se remplit dès le lancement de la simulation.</div>'}`;
-  }
-
-  function systemPane() {
-    const { P, w } = state;
-    const rows = Object.entries(PLATFORM.RULES).map(([k, r]) => {
-      const L = P.learn[k];
-      const p = L.a / (L.a + L.b);
-      return `<div class="r"><span>${esc(r.label)}</span><span class="meter"><i style="width:${Math.round(p * 100)}%"></i></span><span class="n">${Math.round(p * 100)} % · ${L.n}</span></div>`;
-    }).join('');
-    const passes = w.pendingSat.slice().sort((a, b) => a.t - b.t).map((p) => `<li>${hhmm(p.t)} · ${esc(p.name)}${p.done ? ' · effectué' : ''}</li>`).join('');
-    return `<h2>Apprentissage</h2>
-      <p class="hint">Fiabilité de chaque règle, mise à jour après chaque vérification sur place (pourcentage d'alertes confirmées · nombre de vérifications). Le score des nouvelles alertes en tient compte.</p>
-      <div class="learn">${rows}</div>
-      <h2 style="margin-top:18px">Modèle drones-satellite</h2>
-      <p>${state.srModel ? 'Activé.' : 'Désactivé.'} Des images de drones aériens, prises au moment des passages satellites, servent de vérité terrain pour entraîner la détection des pirogues, de leurs sillages et des rassemblements sur les plages.</p>
-      <p class="hint">Dans la simulation, la probabilité de détecter une pirogue au radar passe de 12 % à 55 %, et celle de repérer un rassemblement sur une plage de 15 % à 90 %. Ces valeurs illustrent l'objectif de recherche, ce ne sont pas des performances mesurées.</p>
-      <h2 style="margin-top:18px">Passages satellites</h2><ul class="hint">${passes}</ul>
-      <h2 style="margin-top:18px">Sources de données</h2>
-      <ul class="hint">
-        <li>AIS : toutes les 4 min près des côtes, 12 min au large (AIS satellite).</li>
-        <li>VMS : toutes les 60 min, via un partenariat avec la DPSP.</li>
-        <li>Satellites : radar Sentinel-1 gratuit à heures fixes, acquisitions commerciales sur commande.</li>
-        <li>Moyens : radars et caméras des drones de surface, des drones aériens et des patrouilleurs.</li>
-      </ul>
-      <div class="note">Démonstrateur. Navires, numéros OMI et listes fictifs. Limites maritimes calculées par tampon géométrique à partir des côtes Natural Earth : tracés indicatifs, non officiels. La ZEE indicative couvre environ ${GEO.zeeAreaKm2.toLocaleString('fr-FR')} km².</div>`;
-  }
-
-  // ---------- Actions ----------
-  function openAlert(id) {
-    state.tab = 'alerts'; state.selAlert = id;
-    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === 'alerts')));
-    drawSelection(); renderPanel();
+  function setTab(tab, keepView) {
+    S.tab = tab;
+    if (!keepView) { S.view = 'list'; }
+    $$('.tabs [role=tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    S.paneHtml = ''; S.dirty = true;
     $('#pane').scrollTop = 0;
   }
 
-  function onPaneClick(e) {
-    const t = e.target.closest('button');
-    if (!t) return;
-    const { w, P } = state;
-    if (t.dataset.alert) { openAlert(t.dataset.alert); const a = P.alerts.find((x) => x.id === t.dataset.alert); if (a) map.panTo(a.pos); return; }
-    if (t.dataset.filter) { state.filter = t.dataset.filter; renderPanel(); return; }
-    if (t.hasAttribute('data-back')) { state.selAlert = null; drawSelection(); renderPanel(); return; }
-    if (t.dataset.open) { openAlert(t.dataset.open); return; }
-    if (t.dataset.recall) {
-      const a = w.assets.find((x) => x.id === t.dataset.recall);
-      if (a && a.task) {
-        const al = P.alerts.find((x) => x.id === a.task.alertId);
-        if (al && al.assigned === a.id && !al.verdict) { al.assigned = null; al.status = 'nouvelle'; }
-        if (al && al.followedBy === a.id) al.followedBy = null;
-        a.task = null; a.state = 'retour';
-      }
-      state.dirty = true; return;
+  // ---------- Panneau ----------
+  function renderPane() {
+    const pane = $('#pane');
+    let html;
+    if (S.tab === 'alerts') html = S.view === 'alert' ? alertDetail() : alertList();
+    else if (S.tab === 'assets') html = S.view === 'asset' ? assetDetail() : assetList();
+    else if (S.tab === 'ships') html = S.view === 'track' ? trackDetail() : shipList();
+    else if (S.tab === 'journal') html = journalView();
+    else html = systemView();
+    if (html !== S.paneHtml) {
+      const focusKey = document.activeElement && pane.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+      pane.innerHTML = html; S.paneHtml = html;
+      if (focusKey) { const f = pane.querySelector(`[data-focus="${focusKey}"]`); if (f) { f.focus(); if (f.setSelectionRange && f.value) f.setSelectionRange(f.value.length, f.value.length); } }
     }
-    const al = P.alerts.find((x) => x.id === state.selAlert);
-    if (!al) return;
-    if (t.dataset.assign) {
-      const as = PLATFORM.assign(P, w, al.id, t.dataset.assign, t.dataset.purpose);
-      if (as) toast(`${as.name} engagé sur ${al.id}.`);
-      if (!state.playing) setPlaying(true);
-      state.dirty = true; renderPanel(); return;
-    }
-    if (t.dataset.sat) {
-      const tr = P.tracks.get(al.trackId);
-      const p = SIM.orderSat(w, t.dataset.sat, (tr && tr.lastPos ? tr.lastPos : al.pos).slice());
-      P.journal.unshift({ t: w.t, type: 'sat', text: `${p.name} commandée sur ${al.id}, image attendue à ${hhmm(p.t)}.` });
-      toast(`${p.name} commandée, image attendue à ${hhmm(p.t)}.`, 'sat');
-      state.dirty = true; return;
-    }
-    if (t.dataset.decide) { PLATFORM.decide(P, w, al.id, t.dataset.decide); toast(`${al.id} : ${al.decision}.`); state.dirty = true; renderPanel(); return; }
-    if (t.hasAttribute('data-center')) { const tr = P.tracks.get(al.trackId); map.setView(tr && tr.lastPos ? tr.lastPos : al.pos, Math.max(map.getZoom(), 9)); }
-    if (t.id === 'copyJournal') return;
+    const open = S.P.incidents.filter((i) => !i.closed).length;
+    const badge = $('#badgeAlerts');
+    badge.hidden = !open; badge.textContent = open;
   }
 
-  function bind() {
-    $('#play').addEventListener('click', () => setPlaying(!state.playing));
-    $('#speeds').addEventListener('click', (e) => {
-      const b = e.target.closest('button'); if (!b) return;
-      state.speed = Number(b.dataset.s);
-      document.querySelectorAll('#speeds button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  function stats() {
+    const P = S.P;
+    const verified = P.incidents.filter((i) => i.evidence);
+    const delays = verified.filter((i) => i.delay !== undefined).map((i) => i.delay);
+    return {
+      open: P.incidents.filter((i) => !i.closed).length,
+      verified: verified.length,
+      confirmed: verified.filter((i) => i.verdict === 'confirmée').length,
+      unfounded: P.incidents.filter((i) => i.verdict === 'infondée').length,
+      delay: delays.length ? delays.reduce((a, b) => a + b, 0) / delays.length : null,
+      saved: P.stats.saved,
+    };
+  }
+
+  function alertList() {
+    const P = S.P, st = stats();
+    const cats = ['all', 'peche', 'trafic', 'migration', 'sauvetage', 'surete', 'environnement'];
+    const count = (c) => P.incidents.filter((i) => (c === 'all' || i.cat === c) && (S.status === 'all' || (S.status === 'open' ? !i.closed : i.closed))).length;
+    let list = P.incidents.filter((i) => (S.cat === 'all' || i.cat === S.cat) && (S.status === 'all' || (S.status === 'open' ? !i.closed : i.closed)));
+    list = list.slice().sort((a, b) => (a.closed - b.closed) || (S.status === 'open' ? b.score - a.score : b.created - a.created));
+    let h = `<div class="statstrip">
+      <div><b>${st.open}</b><span>en cours</span></div>
+      <div><b>${st.confirmed}</b><span>infractions prouvées</span></div>
+      <div><b>${st.delay === null ? '–' : dur(st.delay)}</b><span>de l'alerte à la preuve</span></div>
+      <div><b>${st.saved}</b><span>personnes secourues</span></div>
+    </div>
+    <div class="filters">
+      <div class="seg" role="group" aria-label="État des alertes">
+        ${[['open', 'En cours'], ['closed', 'Traitées'], ['all', 'Toutes']].map(([k, l]) => `<button type="button" data-status="${k}" aria-pressed="${S.status === k}">${l}</button>`).join('')}
+      </div>
+      <div class="chips">${cats.map((c) => { const n = count(c); if (c !== 'all' && !n && S.cat !== c) return ''; return `<button type="button" class="chip" data-cat="${c}" aria-pressed="${S.cat === c}"${c !== 'all' ? ` style="--c:${CAT[c].color}"` : ''}>${c === 'all' ? 'Toutes' : CAT[c].short}<small>${n}</small></button>`; }).join('')}</div>
+    </div>`;
+    if (!list.length) {
+      h += `<div class="empty">${P.incidents.length ? 'Aucune alerte dans cette sélection.' : `<b>Aucune alerte pour l'instant.</b><br>Lancez la lecture : la plateforme analyse en continu les positions AIS, les balises VMS et les images satellites. La première image radar arrive à 06 h 48.`}</div>`;
+      return h;
+    }
+    h += '<div class="alist">';
+    list.forEach((inc) => {
+      const [stl, stc] = statusOf(inc);
+      const a = inc.assigned || inc.followedBy || inc.rescueBy || inc.intervention;
+      const asset = a ? S.w.assets.find((x) => x.id === a) : null;
+      let sub = '';
+      if (asset && asset.task && asset.task.incidentId === inc.id && !inc.closed) {
+        const eta = ['transit', 'prep', 'recherche'].includes(asset.state) ? `, arrivée ${hhmm(S.w.t + P_.etaMin(asset, asset.task.estimate, S.w))}` : '';
+        sub = `${esc(asset.short || asset.name)}${eta}`;
+      }
+      h += `<button type="button" class="al sev-${sev(inc.score)}${inc.closed ? ' closed' : ''}${S.sel.alertId === inc.id ? ' sel' : ''}" data-alert="${inc.id}">
+        <span class="al-score" title="Score de risque">${inc.score}</span>
+        <span class="al-main">
+          <span class="al-title">${esc(inc.title)}</span>
+          <span class="al-target">${esc(inc.label)}</span>
+          <span class="al-meta"><span class="cat" style="--c:${catOf(inc).color}">${catOf(inc).short}</span><span>${hhmm(inc.created)}</span><span class="st st-${stc}">${stl}</span>${sub ? `<span class="al-asset">${sub}</span>` : ''}</span>
+        </span>
+      </button>`;
     });
-    $('#reset').addEventListener('click', () => { setPlaying(false); reset(0); toast('Scénario remis à 18 h 30.'); });
-    const jump = $('#jump');
-    D.cases.forEach((c) => { const o = document.createElement('option'); o.value = c.id; o.textContent = `${hhmm(c.t)} · ${c.label}`; jump.appendChild(o); });
-    jump.addEventListener('change', () => {
-      const c = D.cases.find((x) => x.id === jump.value);
-      jump.value = '';
-      if (!c) return;
-      setPlaying(false);
-      reset(c.t, c);
-      map.setView(c.focus, c.zoom);
-      toast(`Cas : ${c.label}. Simulation avancée à ${hhmm(c.t)}.`);
-      const al = state.P.alerts.filter((a) => !a.closed).sort((a, b) => b.created - a.created)[0];
-      if (al) openAlert(al.id);
+    return h + '</div>';
+  }
+
+  function stepper(inc) {
+    const steps = [];
+    steps.push({ k: 'done', t: 'Détection', s: hhmm(inc.created) });
+    const doc = inc.rule === 'PORT_IUU' && !inc.evidence;
+    if (doc) steps.push({ k: 'done', t: 'Vérification', s: 'registres' });
+    else if (inc.evidence) steps.push({ k: 'done', t: 'Vérification', s: esc(inc.evidence.asset) });
+    else if (inc.assigned || inc.followedBy) { const a = S.w.assets.find((x) => x.id === (inc.assigned || inc.followedBy)); steps.push({ k: 'now', t: 'Vérification', s: a ? esc(a.short || a.name) : 'en cours' }); }
+    else if (inc.verdict) steps.push({ k: 'done', t: 'Vérification', s: esc(inc.verdict) });
+    else steps.push({ k: '', t: 'Vérification', s: 'à lancer' });
+    if (inc.evidence) steps.push({ k: 'done', t: 'Preuve', s: hhmm(inc.verifiedAt) });
+    else if (doc) steps.push({ k: 'done', t: 'Preuve', s: 'liste INN' });
+    else steps.push({ k: '', t: 'Preuve', s: '–' });
+    if (inc.closed) steps.push({ k: 'done', t: 'Suites', s: hhmm(inc.closedAt || inc.decidedAt || S.w.t) });
+    else if (inc.intervention || inc.rescueBy) steps.push({ k: 'now', t: 'Suites', s: inc.rescueBy ? 'sauvetage' : 'intervention' });
+    else if (inc.evidence || doc || inc.decisions) steps.push({ k: 'now', t: 'Suites', s: 'à décider' });
+    else steps.push({ k: '', t: 'Suites', s: '–' });
+    return `<ol class="stepper">${steps.map((x) => `<li class="${x.k}"><b>${x.t}</b><span>${x.s}</span></li>`).join('')}</ol>`;
+  }
+
+  function candidates(types, pos, n) {
+    return P_.available(S.w, types).map((a) => ({ a, eta: P_.etaMin(a, pos, S.w) })).sort((x, y) => x.eta - y.eta).slice(0, n || 3);
+  }
+  const assetBtn = (c, purpose, cls) => `<button type="button" class="btn ${cls || ''}" data-assign="${c.a.id}" data-purpose="${purpose}"><b>${esc(c.a.short || c.a.name)}</b><small>arrivée ${hhmm(S.w.t + c.eta)}</small></button>`;
+  const decBtn = (key, primary) => `<button type="button" class="btn ${primary ? 'primary' : ''}" data-decide="${key}">${P_.DECISIONS[key].label}</button>`;
+
+  function recommendation(inc) {
+    const has = (r) => inc.indicators.some((i) => i.rule === r);
+    const pos = inc.pos;
+    if (inc.closed) {
+      const last = (inc.decisions || []).slice(-1)[0];
+      return `<section class="reco done"><h3>Issue</h3><p>${esc(inc.outcome || (last && last.label) || inc.decision || statusOf(inc)[0])}</p>${inc.outcome && last ? `<p class="hint">${esc(last.label)}.</p>` : ''}</section>`;
+    }
+    let h = '<section class="reco"><h3>Prochaine étape</h3>';
+    if (has('DISTRESS') && !inc.rescueBy) {
+      const c = candidates(['opv', 'vedette', 'usv'], pos, 3);
+      h += `<p class="urgent">Vies en danger : déclencher le sauvetage avec le moyen le plus proche.</p><div class="btnrow">${c.map((x, i) => assetBtn(x, 'rescue', i ? '' : 'danger')).join('') || '<span class="hint">Aucun moyen disponible.</span>'}</div>`;
+    } else if (inc.rescueBy) {
+      const a = S.w.assets.find((x) => x.id === inc.rescueBy);
+      h += `<p>${esc(a.short || a.name)} ${a.state === 'secours' ? 'recueille les personnes.' : `fait route, arrivée vers ${hhmm(S.w.t + P_.etaMin(a, a.task ? a.task.estimate : pos, S.w))}.`}</p>`;
+    } else if (inc.intervention) {
+      const a = S.w.assets.find((x) => x.id === inc.intervention);
+      h += `<p>${esc(a.short || a.name)} ${a.state === 'arraisonnement' ? 'procède à l\'arraisonnement.' : `fait route pour l'arraisonnement, arrivée vers ${hhmm(S.w.t + P_.etaMin(a, a.task ? a.task.estimate : pos, S.w))}.`}</p>`;
+    } else if (inc.rule === 'PORT_IUU') {
+      h += `<p>L'identité est établie par les registres : le navire figure sur une liste INN. L'accord sur les mesures du ressort de l'État du port impose de lui refuser l'accès.</p><div class="btnrow">${decBtn('port', true)}${decBtn('marine')}</div>`;
+    } else if (has('GO_FAST') && !inc.verdict && !inc.assigned) {
+      const c = candidates(['drone', 'mpa'], pos, 2);
+      const told = (inc.decisions || []).some((d) => d.key === 'gendarmerie');
+      h += `<p>Embarcation trop rapide pour un drone de surface. ${told ? 'La Gendarmerie est prévenue du point d\'arrivée.' : 'Prévenir la Gendarmerie du point d\'arrivée estimé'} et envoyer un drone aérien la suivre.</p><div class="btnrow">${told ? '' : decBtn('gendarmerie', true)}${c.map((x, i) => assetBtn(x, 'verification', i || !told ? '' : 'own')).join('')}</div>`;
+    } else if (!inc.verdict && !inc.assigned && !inc.followedBy) {
+      const c = candidates(['usv', 'drone', 'mpa'], pos, 3);
+      h += `<p>Envoyer un moyen vérifier sur place. ${S.auto ? 'La plateforme le fait seule dès que le score atteint 60.' : ''}</p><div class="btnrow">${c.map((x, i) => assetBtn(x, has('GATHER') ? 'suivi' : 'verification', i ? '' : 'own')).join('') || '<span class="hint">Tous les moyens sont engagés.</span>'}</div>`;
+      h += `<div class="btnrow minor">${decBtn('classer')}</div>`;
+    } else if (!inc.verdict) {
+      const a = S.w.assets.find((x) => x.id === (inc.assigned || inc.followedBy));
+      if (a && a.task) h += `<p>${esc(a.short || a.name)} : ${STATE_LABEL[a.state].toLowerCase()}${['transit', 'prep', 'recherche'].includes(a.state) ? `, arrivée vers ${hhmm(S.w.t + P_.etaMin(a, a.task.estimate, S.w))}` : ''}.</p><div class="btnrow minor"><button type="button" class="btn" data-recall="${a.id}">Rappeler ${esc(a.short || a.name)}</button></div>`;
+      if (has('GATHER')) h += `<div class="btnrow">${decBtn('gendarmerie', true)}</div>`;
+    } else if (inc.verdict === 'infondée') {
+      h += `<p>La vérification sur place n'a relevé aucune infraction. Classer l'alerte fait baisser la fiabilité de la règle.</p><div class="btnrow">${decBtn('classer', true)}</div>`;
+    } else if (inc.verdict === 'non retrouvée') {
+      const c = candidates(['usv', 'drone', 'mpa'], pos, 2);
+      h += `<p>La cible n'a pas été retrouvée. Commander une image satellite sur la zone ou renvoyer un moyen.</p><div class="btnrow"><button type="button" class="btn primary" data-order="radar">Commander une image radar</button>${c.map((x) => assetBtn(x, 'verification')).join('')}</div><div class="btnrow minor">${decBtn('classer')}</div>`;
+    } else {
+      // Infraction confirmée : suites selon la nature de l'alerte
+      const cat = inc.cat;
+      const opvs = candidates(['opv', 'vedette'], pos, 2);
+      if (cat === 'peche') {
+        h += `<p>Infraction établie, preuve ${esc(inc.evidence ? inc.evidence.id : '')} disponible. Transmettre le dossier à la DPSP${opvs.length ? ', ou faire arraisonner le navire par la Marine' : ''}.</p><div class="btnrow">${decBtn('dpsp', true)}${opvs.map((x) => assetBtn(x, 'intervention')).join('')}</div>`;
+      } else if (cat === 'trafic') {
+        h += `<p>Trafic présumé : la Marine nationale et la Gendarmerie sont compétentes.</p><div class="btnrow">${decBtn('marine', true)}${decBtn('gendarmerie')}${opvs.slice(0, 1).map((x) => assetBtn(x, 'intervention')).join('')}</div>`;
+      } else if (cat === 'migration') {
+        h += `<p>Départ confirmé. Prévenir la Gendarmerie et garder un moyen au contact pour intervenir en cas de détresse.</p><div class="btnrow">${decBtn('gendarmerie', true)}${decBtn('marine')}</div>`;
+      } else if (cat === 'surete') {
+        h += `<p>Menace pour une infrastructure critique.</p><div class="btnrow">${decBtn(inc.installation ? 'operateur' : 'marine', true)}${decBtn(inc.installation ? 'marine' : 'operateur')}</div>`;
+      } else if (cat === 'environnement') {
+        h += `<p>Pollution établie et pollueur présumé identifié : saisir la HASSMAR pour une inspection à la prochaine escale.</p><div class="btnrow">${decBtn('hassmar', true)}${decBtn('marine')}</div>`;
+      } else {
+        const c = candidates(['opv', 'vedette', 'usv'], pos, 2);
+        h += `<div class="btnrow">${c.map((x, i) => assetBtn(x, 'rescue', i ? '' : 'danger')).join('')}</div>`;
+      }
+      h += `<div class="btnrow minor">${decBtn('classer')}</div>`;
+    }
+    if (S.script) h += '<p class="hint auto">Décisions automatiques activées : l\'opérateur virtuel suivra le scénario de référence si vous ne décidez pas.</p>';
+    return h + '</section>';
+  }
+
+  function evidenceBlock(inc) {
+    const ev = inc.evidence;
+    if (!ev) return '';
+    const ok = ev.verdict === 'confirmée';
+    return `<section class="evidence">
+      <h3>Preuve ${esc(ev.id)}</h3>
+      <figure><img src="${CAMERA.evidence(ev)}" alt="Image ${ev.sensor === 'IR' ? 'infrarouge' : 'visible'} prise par ${esc(ev.asset)}" width="640" height="400"><figcaption class="${ok ? 'ok' : 'no'}">${ok ? 'Infraction constatée' : 'Aucune infraction constatée'}</figcaption></figure>
+      <p class="obs">${esc(ev.observations)}</p>
+      <dl class="kv">
+        <dt>Moyen</dt><dd>${esc(ev.asset)}, caméra ${ev.sensor === 'IR' ? 'infrarouge (nuit)' : 'visible (jour)'}</dd>
+        <dt>Heure</dt><dd>${hhmm(ev.t)}, ${dur(ev.t - inc.created)} après l'alerte</dd>
+        <dt>Position</dt><dd>${G.fmtPos(ev.pos)}</dd>
+        <dt>Identité</dt><dd>${esc(ev.identity)}</dd>
+        <dt>Intégrité</dt><dd>Image horodatée, empreinte ${esc(ev.hash)}</dd>
+      </dl>
+    </section>`;
+  }
+
+  function whyBlock(inc) {
+    const items = inc.indicators.slice().sort((a, b) => b.score - a.score).map((i) => {
+      const rel = Math.round(P_.reliability(S.P, i.rule) * 100);
+      return `<li><div class="ind-head"><b>${esc(P_.RULES[i.rule].label)}</b><span class="ind-score sev-${sev(i.score)}">${i.score}</span></div>
+        <ul>${i.factors.map((f) => `<li>${esc(f.txt)}${f.pts ? `<em class="${f.pts > 0 ? 'up' : 'down'}">${f.pts > 0 ? '+' : ''}${f.pts}</em>` : ''}</li>`).join('')}</ul>
+        <small>Détecté à ${hhmm(i.t)}. Fiabilité de cette règle : ${rel} %.</small></li>`;
+    }).join('');
+    return `<section class="why"><h3>Pourquoi cette alerte</h3><ul class="inds">${items}</ul><p class="hint">Le score retient l'indice le plus fort et ajoute 4 points par indice supplémentaire.</p></section>`;
+  }
+
+  function satBlock(inc) {
+    const c = inc.satChip;
+    if (!c) return '';
+    const what = c.slick ? 'Nappe sombre sur l\'image radar' : c.gathering ? `Rassemblement d'environ ${c.count || 'vingt'} embarcations sur la plage, détecté par le modèle entraîné sur les images de drones` : `Écho de ${c.sizeEst || '?'} m${c.wake ? ', sillage visible' : ''}`;
+    return `<section class="satsec"><h3>Image satellite</h3><div class="satrow"><img src="${CAMERA.satChip(c, inc.id)}" alt="Extrait de l'image ${esc(c.pass.name)}" width="240" height="240"><p>${esc(c.pass.name)}, ${esc(c.pass.detail || '')}, ${hhmm(c.t)}.<br>${what}.</p></div></section>`;
+  }
+
+  function historyBlock(inc) {
+    return `<section class="hist"><h3>Historique</h3><ol class="tline">${inc.timeline.map((e) => `<li class="k-${e.kind}"><time>${hhmm(e.t)}</time><span>${esc(e.txt)}</span></li>`).join('')}</ol></section>`;
+  }
+
+  function alertDetail() {
+    const inc = S.P.incidents.find((i) => i.id === S.sel.alertId);
+    if (!inc) { S.view = 'list'; return alertList(); }
+    const tr = S.P.tracks.get(inc.trackId);
+    const s = sev(inc.score);
+    const [stl, stc] = statusOf(inc);
+    let target = esc(inc.label);
+    if (tr && !tr.slick && !tr.gather) {
+      const bits = [];
+      if (tr.kind) bits.push(KIND(tr.kind).toLowerCase());
+      if (tr.lengthM || tr.sizeEst) bits.push(`${Math.round(tr.lengthM || tr.sizeEst)} m`);
+      if (tr.flag) bits.push(`pavillon ${tr.flag}`);
+      if (tr.imo && !String(tr.imo).startsWith('null')) bits.push(`OMI ${tr.imo}`);
+      if (bits.length) target += `<span>${esc(bits.join(', '))}</span>`;
+    }
+    return `<div class="detail">
+      <button type="button" class="back" data-back="alerts">Toutes les alertes</button>
+      <header class="d-head">
+        <div class="d-tags"><span class="cat" style="--c:${catOf(inc).color}">${catOf(inc).label}</span><span class="d-id">${inc.id}</span><span class="st st-${stc}">${stl}</span></div>
+        <h2>${esc(inc.title)}</h2>
+        <p class="d-target">${target}</p>
+        <div class="score sev-${s}"><div class="score-bar"><i style="width:${inc.score}%"></i></div><b>${inc.score}</b><span>Risque ${SEV_LABEL[s].toLowerCase()}</span></div>
+        <div class="d-actions"><button type="button" class="btn sm" data-center="${inc.trackId}">Centrer la carte</button>${tr ? `<button type="button" class="btn sm" data-follow="${inc.trackId}" aria-pressed="${S.follow && S.follow.id === inc.trackId}">Suivre</button>` : ''}${tr && !tr.slick && !tr.gather ? `<button type="button" class="btn sm" data-track="${inc.trackId}">Fiche du navire</button>` : ''}</div>
+      </header>
+      ${stepper(inc)}
+      ${inc.report ? `<section class="report"><h3>Signalement reçu à ${hhmm(inc.report.t)}</h3><p>${esc(inc.report.text)}</p><p class="hint">${esc(inc.report.source)}</p></section>` : ''}
+      ${inc.landing ? `<section class="landing"><h3>Point d'arrivée estimé</h3><p><b>${esc(inc.landing.place)}</b> vers ${hhmm(inc.landing.t)}, d'après le cap et la vitesse mesurés.</p></section>` : ''}
+      ${inc.suspect ? `<section class="landing"><h3>Pollueur présumé</h3><p><b>${esc(inc.suspect.label)}</b>, passé sur le tracé de la nappe à ${hhmm(inc.suspect.at)} (concordance ${Math.round(inc.suspect.match * 100)} %, dérive du courant corrigée).</p></section>` : ''}
+      ${recommendation(inc)}
+      ${evidenceBlock(inc)}
+      ${satBlock(inc)}
+      ${whyBlock(inc)}
+      ${historyBlock(inc)}
+    </div>`;
+  }
+
+  // ---------- Moyens ----------
+  function endurance(a) {
+    if (a.type === 'opv') return null;
+    return Math.max(0, 1 - a.usedMin / (a.enduranceH * 60));
+  }
+  function assetList() {
+    let h = '<p class="intro">Moyens disponibles pour vérifier les alertes. Les drones de surface DIAMBAR tiennent la mer 36 heures ; les drones aériens arrivent vite mais volent 6 à 8 heures.</p>';
+    ASSET_GROUPS.forEach((g) => {
+      const list = S.w.assets.filter((a) => g.types.includes(a.type));
+      h += `<h3 class="grp">${g.title}</h3><div class="assets">`;
+      list.forEach((a) => {
+        const e = endurance(a);
+        const inc = a.task ? S.P.incidents.find((i) => i.id === a.task.incidentId) : null;
+        const busy = !['base', 'patrouille', 'maintenance', 'turnaround'].includes(a.state);
+        h += `<button type="button" class="asset ${a.type === 'usv' ? 'own' : 'state'}${S.sel.assetId === a.id ? ' sel' : ''}" data-asset="${a.id}">
+          <span class="as-name"><b>${esc(a.type === 'usv' ? a.name : a.short || a.name)}</b><small>${esc(a.baseName)}</small></span>
+          <span class="as-state ${busy ? 'busy' : a.state === 'maintenance' ? 'off' : ''}">${STATE_LABEL[a.state] || a.state}${inc ? ` <em>${inc.id}</em>` : ''}</span>
+          ${e === null ? '<span class="as-fuel"><small>Autonomie de plusieurs semaines</small></span>' : `<span class="as-fuel"><span class="meter"><i style="width:${Math.round(e * 100)}%"></i></span><small>${Math.round(e * 100)} % d'autonomie</small></span>`}
+        </button>`;
+      });
+      h += '</div>';
     });
-    $('#truth').addEventListener('change', (e) => { state.truth = e.target.checked; if (!state.truth) { layers.truth.clearLayers(); layers.markers.truth.clear(); } });
-    $('#srModel').addEventListener('change', (e) => { state.srModel = e.target.checked; state.w.opts.srModel = state.srModel; toast(state.srModel ? 'Modèle drones-satellite activé pour les prochains passages.' : 'Modèle drones-satellite désactivé : détection satellite brute.'); state.dirty = true; });
-    document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
-    $('#pane').addEventListener('click', onPaneClick);
-    $('#pane').addEventListener('input', (e) => { if (e.target.id === 'shipSearch') { state.search = e.target.value; renderPanel(); } });
-    $('#pane').addEventListener('click', (e) => {
-      if (e.target.id !== 'copyJournal') return;
-      const data = JSON.stringify({ scenario: 'DIAMBAR 2027 · démonstrateur', journal: state.P.journal.map((j) => ({ heure: hhmm(j.t), type: j.type, texte: j.text })), alertes: state.P.alerts.map((a) => ({ id: a.id, regle: a.rule, navire: a.label, score: a.score, statut: a.status, preuve: a.evidence || null })) }, null, 2);
-      const done = (msg) => { const m = $('#copyMsg'); if (m) m.textContent = msg; };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data).then(() => done('Copié.'), () => done('Copie refusée par le navigateur.'));
-      else done('Copie indisponible.');
+    return h;
+  }
+  function assetDetail() {
+    const a = S.w.assets.find((x) => x.id === S.sel.assetId);
+    if (!a) { S.view = 'list'; return assetList(); }
+    const inc = a.task ? S.P.incidents.find((i) => i.id === a.task.incidentId) : null;
+    const e = endurance(a);
+    const purpose = a.task ? { verification: 'vérification', suivi: 'suivi continu', rescue: 'sauvetage', intervention: 'intervention' }[a.task.purpose] : null;
+    return `<div class="detail">
+      <button type="button" class="back" data-back="assets">Tous les moyens</button>
+      <header class="d-head">
+        <div class="d-tags"><span class="cat" style="--c:${a.type === 'usv' ? 'var(--friend)' : 'var(--state)'}">${esc(D.assetTypeLabel[a.type])}</span></div>
+        <h2>${esc(a.name)}</h2>
+        <p class="d-target">Basé à ${esc(a.baseName)}. ${STATE_LABEL[a.state] || a.state}.</p>
+        <div class="d-actions"><button type="button" class="btn sm" data-center-asset="${a.id}">Centrer la carte</button><button type="button" class="btn sm" data-follow-asset="${a.id}" aria-pressed="${S.follow && S.follow.id === a.id}">Suivre</button>${a.task ? `<button type="button" class="btn sm" data-recall="${a.id}">Rappeler</button>` : ''}</div>
+      </header>
+      ${inc ? `<section class="reco"><h3>Mission en cours</h3><p><button type="button" class="link" data-alert="${inc.id}">${inc.id}, ${esc(inc.title.toLowerCase())}</button> : ${purpose}. ${['transit', 'prep', 'recherche'].includes(a.state) ? `Arrivée estimée ${hhmm(S.w.t + P_.etaMin(a, a.task.estimate, S.w))}.` : ''}</p></section>` : ''}
+      <dl class="kv">
+        <dt>Vitesse</dt><dd>${a.kn} nœuds</dd>
+        <dt>Autonomie</dt><dd>${e === null ? 'plusieurs semaines' : `${a.enduranceH} h, reste ${dur(Math.max(0, a.enduranceH * 60 - a.usedMin))}`}</dd>
+        <dt>Radar</dt><dd>navires de commerce à ${a.detectLarge} milles, petites embarcations à ${a.detectSmall} milles</dd>
+        <dt>Identification</dt><dd>caméra jour et nuit, à ${num(a.identify)} mille</dd>
+        <dt>Délai d'appareillage</dt><dd>${a.readyMin ? `${a.readyMin} min` : 'immédiat'}</dd>
+        <dt>Position</dt><dd>${G.fmtPos(a.pos)}</dd>
+        <dt>Missions du jour</dt><dd>${a.missions}</dd>
+      </dl>
+    </div>`;
+  }
+
+  // ---------- Navires ----------
+  function trackRow(tr, alertOf) {
+    const inc = alertOf.get(tr.id);
+    const srcs = Object.keys(tr.sources);
+    const tag = (s) => (s === 'AIS' ? 'AIS' : s === 'VMS' ? 'VMS' : /Sentinel|Satellite/.test(s) ? 'SAT' : 'RADAR');
+    const tags = [...new Set(srcs.map(tag))];
+    const cls = inc ? 'suspect' : tr.unknown ? 'unknown' : 'neutral';
+    return `<button type="button" class="ship ${cls}${S.sel.trackId === tr.id ? ' sel' : ''}" data-track="${tr.id}">
+      <i class="aff"></i>
+      <span class="sh-main"><b>${esc(tr.unknown && !tr.visual ? tr.contactNo || tr.label : tr.name || tr.label)}</b><small>${esc(tr.kind ? KIND(tr.kind) : tr.cls === 'small' ? 'Petite embarcation' : 'Navire')}${tr.flag ? `, ${esc(tr.flag)}` : ''}</small></span>
+      <span class="sh-src">${tags.map((x) => `<em>${x}</em>`).join('')}</span>
+      <span class="sh-age">${hhmm(tr.lastT)}</span>
+    </button>`;
+  }
+  function shipList() {
+    const P = S.P, t = S.w.t;
+    const alertOf = new Map();
+    P.incidents.forEach((i) => { if (!i.closed) alertOf.set(i.trackId, i); });
+    const q = S.shipQuery.trim().toLowerCase();
+    let all = [...P.tracks.values()].filter((tr) => tr.lastPos && !tr.closedTrack && !tr.slick && !tr.gather && t - tr.lastT < 360);
+    const counts = { ais: all.filter((x) => x.lastAis && t - x.lastAis.t < 60).length, vms: all.filter((x) => x.lastVms && t - x.lastVms.t < 120).length, unk: all.filter((x) => x.unknown).length };
+    if (q) all = all.filter((tr) => [tr.name, tr.label, tr.imo, tr.mmsi, tr.contactNo].some((v) => v && String(v).toLowerCase().includes(q)));
+    const groups = [
+      { title: 'Sous alerte', list: all.filter((x) => alertOf.has(x.id)) },
+      { title: 'Contacts sans identité', list: all.filter((x) => x.unknown && !alertOf.has(x.id)) },
+      { title: 'Pêche', list: all.filter((x) => !x.unknown && !alertOf.has(x.id) && P_.FISHING.includes(x.kind)) },
+      { title: 'Commerce, passagers et servitude', list: all.filter((x) => !x.unknown && !alertOf.has(x.id) && P_.MERCHANT.includes(x.kind)) },
+      { title: 'Autres', list: all.filter((x) => !x.unknown && !alertOf.has(x.id) && !P_.FISHING.includes(x.kind) && !P_.MERCHANT.includes(x.kind)) },
+    ];
+    let h = `<div class="statstrip three"><div><b>${counts.ais}</b><span>suivis par AIS</span></div><div><b>${counts.vms}</b><span>balises VMS actives</span></div><div><b>${counts.unk}</b><span>sans identité</span></div></div>
+      <div class="search"><input type="search" placeholder="Nom, numéro OMI ou MMSI" value="${esc(S.shipQuery)}" data-focus="shipq" aria-label="Rechercher un navire"></div>`;
+    groups.forEach((g) => {
+      if (!g.list.length) return;
+      g.list.sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label), 'fr'));
+      h += `<h3 class="grp">${g.title} <small>${g.list.length}</small></h3><div class="ships">${g.list.slice(0, 80).map((tr) => trackRow(tr, alertOf)).join('')}</div>`;
     });
+    if (S.P.coastalSeen) h += `<p class="hint">Les pirogues de pêche artisanale à moins de 12 milles de la côte sont filtrées : elles ne déclenchent ni piste ni alerte.</p>`;
+    return h;
+  }
+  function trackDetail() {
+    const tr = S.P.tracks.get(S.sel.trackId);
+    if (!tr) { S.view = 'list'; return shipList(); }
+    const t = S.w.t;
+    const reg = tr.imo ? P_.regByImo[tr.imo] : null;
+    const iuu = tr.imo ? P_.iuuByImo[tr.imo] : null;
+    const incs = S.P.incidents.filter((i) => i.trackId === tr.id);
+    const src = Object.entries(tr.sources).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} à ${hhmm(v)}`).join(', ');
+    let regTxt = 'Non concerné';
+    if (P_.FISHING.includes(tr.kind) || tr.unknown) regTxt = reg ? `Licence « ${esc(reg.licence)} »` : tr.unknown ? 'Identité inconnue' : 'Absent du registre des navires autorisés';
+    if (iuu) regTxt = `Inscrit sur une liste INN : ${esc(iuu.name)}`;
+    return `<div class="detail">
+      <button type="button" class="back" data-back="ships">Tous les navires</button>
+      <header class="d-head">
+        <div class="d-tags"><span class="cat" style="--c:${tr.unknown ? 'var(--unknown-ink)' : 'var(--neutral)'}">${tr.unknown ? 'Contact sans identité' : 'Navire identifié'}</span></div>
+        <h2>${esc(tr.unknown && !tr.visual ? tr.contactNo || tr.label : tr.name || tr.label)}</h2>
+        <p class="d-target">${esc(tr.kind ? KIND(tr.kind) : tr.cls === 'small' ? 'Petite embarcation' : 'Navire')}${tr.lengthM || tr.sizeEst ? `, ${Math.round(tr.lengthM || tr.sizeEst)} m` : ''}${tr.flag ? `, pavillon ${esc(tr.flag)}` : ''}</p>
+        <div class="d-actions"><button type="button" class="btn sm" data-center="${tr.id}">Centrer la carte</button><button type="button" class="btn sm" data-follow="${tr.id}" aria-pressed="${S.follow && S.follow.id === tr.id}">Suivre</button></div>
+      </header>
+      <dl class="kv">
+        ${tr.imo ? `<dt>Numéro OMI</dt><dd>${esc(tr.imo)}</dd>` : ''}
+        ${tr.mmsi ? `<dt>MMSI</dt><dd>${esc(tr.mmsi)}</dd>` : ''}
+        <dt>Registre</dt><dd>${regTxt}</dd>
+        <dt>Dernières sources</dt><dd>${src || '–'}</dd>
+        <dt>Route</dt><dd>${tr.sog !== undefined ? `${num(tr.sog)} nœuds, cap ${Math.round(tr.cog || 0)}°` : 'inconnue'}</dd>
+        ${tr.dest ? `<dt>Destination déclarée</dt><dd>${esc(tr.dest)}</dd>` : ''}
+        <dt>Position</dt><dd>${G.fmtPos(tr.lastPos)}${t - tr.lastT > 30 ? `, il y a ${dur(t - tr.lastT)}` : ''}</dd>
+        <dt>Distance à la côte</dt><dd>${num(G.coastDist(tr.lastPos), 0)} milles</dd>
+      </dl>
+      ${incs.length ? `<section class="reco"><h3>Alertes</h3>${incs.map((i) => `<p><button type="button" class="link" data-alert="${i.id}">${i.id}, ${esc(i.title)}</button> (${statusOf(i)[0].toLowerCase()})</p>`).join('')}</section>` : '<p class="hint">Aucune alerte sur ce navire.</p>'}
+    </div>`;
+  }
+
+  // ---------- Journal ----------
+  const JTYPES = { all: 'Tout', alert: 'Alertes', preuve: 'Preuves', decision: 'Décisions', asset: 'Moyens', sat: 'Satellites' };
+  function journalView() {
+    const list = S.P.journal.filter((j) => S.jfilter === 'all' || j.type === S.jfilter || (S.jfilter === 'alert' && j.type === 'indice')).slice(0, 250);
+    let h = `<div class="filters"><div class="chips">${Object.entries(JTYPES).map(([k, l]) => `<button type="button" class="chip" data-jf="${k}" aria-pressed="${S.jfilter === k}">${l}</button>`).join('')}</div></div>`;
+    if (!list.length) return h + '<div class="empty">Le journal se remplit au fil de la simulation : alertes, envois de drones, preuves, décisions et passages satellites.</div>';
+    h += `<ol class="journal">${list.map((j) => `<li class="j-${j.type}"><time>${hhmm(j.t)}</time><span>${j.ref ? `<button type="button" class="link" data-alert="${j.ref}">${esc(j.text)}</button>` : esc(j.text)}</span></li>`).join('')}</ol>`;
+    return h;
+  }
+
+  // ---------- Système ----------
+  function systemView() {
+    const st = stats();
+    const learn = Object.entries(S.P.learn).filter(([, L]) => L.n > 0 || true).map(([k, L]) => ({ k, p: L.a / (L.a + L.b), n: L.n })).sort((a, b) => b.n - a.n || b.p - a.p);
+    const passes = S.w.pendingSat.slice().sort((a, b) => a.t - b.t);
+    const tog = (key, title, txt) => `<label class="toggle"><input type="checkbox" data-set="${key}" ${S[key] ? 'checked' : ''}><span><b>${title}</b><small>${txt}</small></span></label>`;
+    return `<section class="sys"><h3>Bilan</h3>
+      <div class="statstrip">
+        <div><b>${S.P.incidents.length}</b><span>alertes levées</span></div>
+        <div><b>${st.confirmed}</b><span>infractions prouvées</span></div>
+        <div><b>${st.unfounded}</b><span>fausses alertes levées sans patrouilleur</span></div>
+        <div><b>${st.saved}</b><span>personnes secourues</span></div>
+      </div></section>
+      <section class="sys"><h3>Réglages de la démonstration</h3>
+        ${tog('script', 'Décisions automatiques', 'Un opérateur virtuel applique les décisions du scénario de référence (transmissions, interventions, sauvetages).')}
+        ${tog('auto', 'Envoi automatique des drones', 'Un drone part vérifier dès que le score d\'une alerte atteint 60.')}
+        ${tog('srModel', 'Modèle drones et satellites', 'Modèle de super-résolution entraîné sur les images des drones : les pirogues deviennent visibles sur les images satellites.')}
+        ${tog('truth', 'Vérité terrain (mode formateur)', 'Affiche tous les navires, y compris ceux qu\'aucun capteur ne voit.')}
+      </section>
+      <section class="sys"><h3>Fiabilité des règles</h3>
+        <p class="hint">Mise à jour après chaque vérification sur place. Le score des nouvelles alertes en tient compte.</p>
+        <div class="rel">${learn.map((x) => `<div class="rel-row"><span>${esc(P_.RULES[x.k].label)}</span><span class="meter"><i style="width:${Math.round(x.p * 100)}%"></i></span><b>${Math.round(x.p * 100)} %</b><small>${x.n ? `${x.n} vérif.` : 'a priori'}</small></div>`).join('')}</div>
+      </section>
+      <section class="sys"><h3>Images satellites</h3>
+        <ol class="passes">${passes.map((p) => `<li class="${p.done ? 'done' : ''}"><time>${hhmm(p.t)}</time><span><b>${esc(p.name)}</b>, ${esc(p.detail)}</span><em>${p.done ? 'reçue' : 'à venir'}</em></li>`).join('')}</ol>
+        <button type="button" class="btn" data-order="radar-center">Commander une image radar sur la zone affichée</button>
+        <p class="hint">Un satellite radar commercial livre en 50 minutes environ, de jour comme de nuit.</p>
+      </section>
+      <section class="sys about"><h3>À propos des données</h3>
+        <p>Scénario simulé. Navires civils, numéros OMI et MMSI, licences et listes INN sont fictifs (préfixe SIM). Les moyens de l'État portent leurs noms, leurs positions et missions sont simulées.</p>
+        <p>Trait de côte : OpenStreetMap. Bathymétrie et fleuves : Natural Earth. Zone économique exclusive, mer territoriale, bande des 6 milles et zone commune avec la Guinée-Bissau : tracés calculés pour la démonstration, non officiels.</p>
+      </section>`;
+  }
+
+  // ---------- Événements du panneau ----------
+  function bindPane() {
+    const pane = $('#pane');
+    pane.addEventListener('pointerdown', () => { S.pointerDown = true; });
+    window.addEventListener('pointerup', () => { setTimeout(() => { S.pointerDown = false; }, 60); });
+    pane.addEventListener('click', (e) => {
+      const b = e.target.closest('button, [data-alert]');
+      if (!b) return;
+      const d = b.dataset;
+      if (d.alert) { openAlert(d.alert, true); return; }
+      if (d.back) { S.view = 'list'; S.sel = {}; S.dirty = true; return; }
+      if (d.status) { S.status = d.status; S.dirty = true; return; }
+      if (d.cat) { S.cat = d.cat; S.dirty = true; return; }
+      if (d.jf) { S.jfilter = d.jf; S.dirty = true; return; }
+      if (d.asset) { openAsset(d.asset, true); return; }
+      if (d.track) { S.sel = { trackId: d.track }; S.view = 'track'; setTab('ships', true); const tr = S.P.tracks.get(d.track); if (tr) RENDER.flyTo(tr.lastPos, Math.max(RENDER.map.getZoom(), 9.5)); return; }
+      if (d.center) { const tr = S.P.tracks.get(d.center); if (tr && tr.lastPos) RENDER.flyTo(P_.drPos(tr, S.w.t) || tr.lastPos, Math.max(RENDER.map.getZoom(), 10)); return; }
+      if (d.centerAsset) { const a = S.w.assets.find((x) => x.id === d.centerAsset); if (a) RENDER.flyTo(a.pos, Math.max(RENDER.map.getZoom(), 9.5)); return; }
+      if (d.follow) { S.follow = S.follow && S.follow.id === d.follow ? null : { type: 'track', id: d.follow }; S.dirty = true; return; }
+      if (d.followAsset) { S.follow = S.follow && S.follow.id === d.followAsset ? null : { type: 'asset', id: d.followAsset }; S.dirty = true; return; }
+      if (d.assign) {
+        const inc = S.P.incidents.find((i) => i.id === S.sel.alertId);
+        if (inc) { P_.assign(S.P, S.w, inc.id, d.assign, d.purpose); S.dirty = true; }
+        return;
+      }
+      if (d.decide) { const inc = S.P.incidents.find((i) => i.id === S.sel.alertId); if (inc) { P_.decide(S.P, S.w, inc.id, d.decide); S.dirty = true; } return; }
+      if (d.recall) { P_.recall(S.P, S.w, d.recall); S.dirty = true; return; }
+      if (d.order) {
+        const inc = S.P.incidents.find((i) => i.id === S.sel.alertId);
+        const c = d.order === 'radar-center' || !inc ? RENDER.map.getCenter() : null;
+        const center = c ? [c.lat, c.lng] : inc.pos;
+        const p = SIM.orderSat(S.w, 'radar', center);
+        toastText(`Image radar commandée : livraison prévue à ${hhmm(p.t)}.`);
+        S.dirty = true;
+      }
+    });
+    pane.addEventListener('change', (e) => {
+      const k = e.target.dataset.set;
+      if (!k) return;
+      S[k] = e.target.checked;
+      if (k === 'script') S.P.script = S.script;
+      if (k === 'auto') S.P.auto = S.auto;
+      if (k === 'srModel') S.w.opts.srModel = S.srModel;
+      if (k === 'truth') { syncLayersPanel(); }
+      S.dirty = true;
+    });
+    pane.addEventListener('input', (e) => {
+      if (e.target.dataset.focus === 'shipq') { S.shipQuery = e.target.value; S.dirty = true; }
+    });
+  }
+
+  // ---------- Couches et légende ----------
+  const LAYERS = [
+    ['zones', 'Zones : ZEE, 12 et 6 milles, zone commune'],
+    ['amp', 'Aires marines protégées'],
+    ['infra', 'Câbles, mouillage, plateformes'],
+    ['ais', 'Portée des stations AIS côtières'],
+    ['grid', 'Graduations et échelle'],
+    ['trails', 'Traces des navires'],
+    ['truth', 'Vérité terrain (mode formateur)'],
+    ['sat', 'Fond satellite (nécessite Internet)'],
+  ];
+  function syncLayersPanel() {
+    $('#layersPanel').innerHTML = `<h3>Couches</h3>${LAYERS.map(([k, l]) => `<label><input type="checkbox" data-layer="${k}" ${(k === 'truth' ? S.truth : RENDER.opts[k]) ? 'checked' : ''}>${l}</label>`).join('')}<p class="hint" id="satNote" hidden>Le fond satellite n'a pas pu être chargé ici : la carte marine reste affichée.</p>`;
+  }
+  function bindLayers() {
+    const btn = $('#layersBtn'), panel = $('#layersPanel');
+    syncLayersPanel();
+    btn.addEventListener('click', () => { panel.hidden = !panel.hidden; btn.setAttribute('aria-expanded', String(!panel.hidden)); });
+    panel.addEventListener('change', (e) => {
+      const k = e.target.dataset.layer;
+      if (!k) return;
+      if (k === 'truth') { S.truth = e.target.checked; S.dirty = true; return; }
+      if (k === 'trails') { RENDER.opts.trails = e.target.checked; return; }
+      RENDER.setOpt(k, e.target.checked);
+      if (k === 'sat' && e.target.checked) {
+        let failed = false;
+        RENDER.layers.sat.once('tileerror', () => {
+          if (failed) return; failed = true;
+          RENDER.setOpt('sat', false); e.target.checked = false; $('#satNote').hidden = false;
+        });
+      }
+    });
+    document.addEventListener('click', (e) => { if (!panel.hidden && !e.target.closest('.map-tools')) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
+  }
+
+  function legendSwatch(kind, pal, L, rot) {
+    const cv = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = 34 * dpr; cv.height = 22 * dpr;
+    const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr); ctx.translate(17, 11); ctx.rotate(rot === undefined ? Math.PI / 2 : rot);
+    if (kind === 'drone') SYM.drone(ctx, 24, Object.assign({ lw: 1 }, pal));
+    else SYM.vessel(ctx, kind, L, Object.assign({ lw: 1 }, pal), L >= 20 ? 1 : 0, 3);
+    return cv.toDataURL();
+  }
+  function buildLegend() {
+    const P = RENDER.PAL;
+    const colors = [
+      [P.friend.hull, P.friend.line, 'Drone de surface DIAMBAR'],
+      [P.state.hull, P.state.line, 'Moyen de l\'État'],
+      [P.neutral.hull, P.neutral.line, 'Navire identifié, en règle'],
+      [P.unknown.hull, P.unknown.line, 'Contact sans identité'],
+      [P.suspect.hull, P.suspect.line, 'Navire sous alerte'],
+    ];
+    const g = { hull: '#D7DEE6', line: '#4B5563', house: '#F5F7FA', dark: '#9CA3AF', light: '#EEF1F5' };
+    const shapes = [['container', 32, 'Porte-conteneurs'], ['tanker', 32, 'Pétrolier'], ['trawler', 26, 'Chalutier'], ['pirogue', 26, 'Pirogue'], ['opv', 32, 'Patrouilleur'], ['drone', 0, 'Drone aérien']];
+    const el = $('#legend');
+    el.innerHTML = `<button type="button" class="legend-btn" aria-expanded="false">Légende</button>
+      <div class="legend-body" hidden>
+        <h4>La couleur dit le statut</h4>
+        ${colors.map(([f, l, txt]) => `<div class="lg-row"><span class="lg-sw" style="background:${f};border-color:${l}"></span>${txt}</div>`).join('')}
+        <h4>La forme dit le type</h4>
+        <div class="lg-shapes">${shapes.map(([k, L, txt]) => `<div class="lg-row"><img src="${legendSwatch(k, g, L)}" alt="" width="34" height="22">${txt}</div>`).join('')}</div>
+        <h4>Zones</h4>
+        <div class="lg-row"><span class="lg-line" style="border-top:2px dashed #1A3768"></span>Limite de la ZEE</div>
+        <div class="lg-row"><span class="lg-area" style="background:repeating-linear-gradient(-45deg,rgba(196,138,0,.45) 0 1px,transparent 1px 5px);border:1px dotted #B27A00"></span>Bande des 6 milles</div>
+        <div class="lg-row"><span class="lg-area round" style="background:rgba(91,170,116,.25);border:1px solid #2F7D4A"></span>Aire marine protégée</div>
+        <div class="lg-row"><span class="lg-line" style="border-top:2px dotted #7B4FB8"></span>Câble sous-marin</div>
+      </div>`;
+    const b = $('.legend-btn', el), body = $('.legend-body', el);
+    b.addEventListener('click', () => { body.hidden = !body.hidden; b.setAttribute('aria-expanded', String(!body.hidden)); });
+    if (window.innerWidth > 1500 && window.innerHeight > 860) { body.hidden = false; b.setAttribute('aria-expanded', 'true'); }
+  }
+
+  // ---------- Carte : survol et clic ----------
+  function bindMap() {
+    const map = RENDER.map, card = $('#hovercard');
+    map.on('mousemove', (e) => {
+      const h = RENDER.hitTest(e.layerPoint);
+      map.getContainer().style.cursor = h ? 'pointer' : '';
+      if (!h) { card.hidden = true; return; }
+      card.hidden = false;
+      card.innerHTML = hoverText(h);
+      const pt = e.containerPoint;
+      card.style.left = `${Math.min(pt.x + 16, map.getSize().x - 260)}px`;
+      card.style.top = `${Math.max(8, pt.y - 10)}px`;
+    });
+    map.on('mouseout', () => { card.hidden = true; });
+    map.on('click', (e) => {
+      const h = RENDER.hitTest(e.layerPoint);
+      if (!h) return;
+      if (h.type === 'track') {
+        const inc = S.P.incidents.filter((i) => i.trackId === h.id).sort((a, b) => (a.closed - b.closed) || b.created - a.created)[0];
+        if (inc && (!inc.closed || h.id.startsWith('slick:') || h.id.startsWith('gather:'))) openAlert(inc.id, false); else openTrack(h.id, false);
+      } else if (h.type === 'asset') openAsset(h.id, false);
+    });
+    map.on('dragstart', () => { if (S.follow) { S.follow = null; S.dirty = true; } });
+  }
+  function hoverText(h) {
+    if (h.type === 'asset') {
+      const a = S.w.assets.find((x) => x.id === h.id);
+      return `<b>${esc(a.name)}</b><span>${esc(D.assetTypeLabel[a.type])}</span><span>${STATE_LABEL[a.state] || a.state}${a.task ? `, ${a.task.incidentId}` : ''}</span>`;
+    }
+    if (h.type === 'install') {
+      const i = D.installations.find((x) => x.id === h.id);
+      return `<b>${esc(i.name)}</b><span>${esc(i.field)}, zone de sécurité de ${i.safetyM} m</span>`;
+    }
+    const tr = S.P.tracks.get(h.id);
+    if (!tr) return '';
+    const inc = S.P.incidents.find((i) => i.trackId === tr.id && !i.closed);
+    const srcs = Object.entries(tr.sources).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} ${hhmm(v)}`).join(', ');
+    return `<b>${esc(tr.unknown && !tr.visual ? (tr.contactNo || tr.label) : tr.name || tr.label)}</b><span>${esc(tr.slick ? 'Nappe d\'hydrocarbures' : tr.gather ? 'Plage de ' + tr.beach : tr.kind ? KIND(tr.kind) : 'Contact sans identité')}${tr.sog !== undefined && !tr.slick ? `, ${num(tr.sog)} nœuds` : ''}</span><span>${esc(srcs)}</span>${inc ? `<span class="hv-alert sev-${sev(inc.score)}">${inc.id}, ${esc(inc.title)}</span>` : ''}`;
+  }
+
+  // ---------- Cas et démo guidée ----------
+  function incidentForCase(c) {
+    const P = S.P;
+    const of = P.incidents.filter((i) => i.truthId === c.truth);
+    if (c.id === 'distress') return of.find((i) => i.indicators.some((x) => x.rule === 'DISTRESS')) || of[0];
+    return of.sort((a, b) => (a.closed - b.closed) || b.score - a.score)[0];
+  }
+  async function openCase(i, demo) {
+    const c = D.cases[i];
+    if (!c) return;
+    closeMenus();
+    S.demo = demo ? { i } : null;
+    S.follow = null;
+    await seek(c.t, `Préparation du cas : ${c.title}`);
+    setPlaying(false);
+    const inc = incidentForCase(c);
+    const tr = inc ? S.P.tracks.get(inc.trackId) : null;
+    const pos = tr && tr.lastPos ? P_.drPos(tr, S.w.t) || tr.lastPos : inc ? inc.pos : null;
+    if (inc) { S.sel = { alertId: inc.id }; S.view = 'alert'; setTab('alerts', true); }
+    showCaption(c, i, demo);
+    // Sur grand écran, la fiche du cas couvre le bas à gauche : le point commenté est placé en haut à droite
+    const overlay = getComputedStyle($('#caption')).position === 'absolute';
+    if (pos) { RENDER.flyTo(pos, c.zoom, overlay ? { at: [0.62, 0.36] } : null); S.focus = pos; setTimeout(() => { S.focus = null; }, 5200); }
+    S.dirty = true;
+  }
+  function showCaption(c, i, demo) {
+    const cap = $('#caption');
+    cap.hidden = false;
+    cap.innerHTML = `<div class="cap-top"><span class="cat" style="--c:${CAT[c.cat].color}">${CAT[c.cat].label}</span><span class="cap-step">${demo ? `Cas ${i + 1} sur ${D.cases.length}` : hhmm(c.t)}</span><button type="button" class="close" data-cap="close" aria-label="Fermer">×</button></div>
+      <h3>${esc(c.title)}</h3><p>${esc(c.text)}</p>
+      <div class="cap-actions">${demo ? `<button type="button" class="btn" data-cap="prev" ${i === 0 ? 'disabled' : ''}>Précédent</button>` : ''}<button type="button" class="btn" data-cap="play">Voir la suite en direct</button>${demo ? `<button type="button" class="btn primary" data-cap="next">${i === D.cases.length - 1 ? 'Terminer' : 'Cas suivant'}</button>` : ''}</div>`;
+  }
+  function bindCaption() {
+    $('#caption').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-cap]');
+      if (!b) return;
+      const k = b.dataset.cap;
+      if (k === 'close') { $('#caption').hidden = true; S.demo = null; }
+      if (k === 'play') { $('#caption').hidden = true; S.demo = null; S.speed = 1; syncSpeeds(); setPlaying(true); }
+      if (k === 'next') {
+        const n = S.demo ? S.demo.i + 1 : 0;
+        if (n >= D.cases.length) { $('#caption').hidden = true; S.demo = null; toastText('Fin de la démo guidée. Continuez librement : la frise du bas permet de revenir à n\'importe quel moment.'); }
+        else openCase(n, true);
+      }
+      if (k === 'prev' && S.demo) openCase(Math.max(0, S.demo.i - 1), true);
+    });
+  }
+  function buildCasesMenu() {
+    const menu = $('#casesMenu');
+    menu.innerHTML = `<p class="menu-head">Seize situations du scénario, dans l'ordre de la journée</p>${D.cases.map((c, i) => `<button type="button" data-case="${i}"><i style="--c:${CAT[c.cat].color}"></i><time>${hhmm(c.t)}</time><span>${esc(c.title)}</span></button>`).join('')}`;
+    menu.addEventListener('click', (e) => { const b = e.target.closest('[data-case]'); if (b) openCase(+b.dataset.case, false); });
+    $('#casesBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden; $('#casesBtn').setAttribute('aria-expanded', String(!menu.hidden));
+    });
+    document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('.menu-wrap')) closeMenus(); });
+  }
+  function closeMenus() { $('#casesMenu').hidden = true; $('#casesBtn').setAttribute('aria-expanded', 'false'); }
+
+  // ---------- Commandes ----------
+  function syncSpeeds() { $$('#speeds button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.speed === S.speed))); }
+  function bindControls() {
+    $('#playBtn').addEventListener('click', () => { if (S.w.t >= D.END_MIN) { seek(0).then(() => setPlaying(true)); return; } setPlaying(!S.playing); });
+    $$('#speeds button').forEach((b) => b.addEventListener('click', () => { S.speed = +b.dataset.speed; syncSpeeds(); }));
+    $$('.tabs [role=tab]').forEach((b) => b.addEventListener('click', () => { S.sel = {}; setTab(b.dataset.tab); }));
+    $('#demoBtn').addEventListener('click', () => openCase(0, true));
     $('#helpBtn').addEventListener('click', () => { $('#help').hidden = false; });
     $('#helpClose').addEventListener('click', () => { $('#help').hidden = true; });
+    $('#help').addEventListener('click', (e) => { if (e.target.id === 'help') $('#help').hidden = true; });
+    $('#wDemo').addEventListener('click', () => { closeWelcome(); openCase(0, true); });
+    $('#wFree').addEventListener('click', () => { closeWelcome(); setPlaying(true); });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') $('#help').hidden = true;
-      if (e.key === ' ' && e.target === document.body) { e.preventDefault(); setPlaying(!state.playing); }
+      if (e.target.closest('input, textarea, select')) return;
+      if (e.key === ' ') { e.preventDefault(); setPlaying(!S.playing); }
+      if (e.key === 'Escape') { $('#help').hidden = true; closeMenus(); if (!$('#welcome').hidden) closeWelcome(); }
+      if (e.key === 'ArrowRight' && S.demo) openCase(Math.min(D.cases.length - 1, S.demo.i + 1), true);
+      if (e.key === 'ArrowLeft' && S.demo) openCase(Math.max(0, S.demo.i - 1), true);
     });
   }
+  function closeWelcome() { $('#welcome').hidden = true; store.set('diambar-2027-vu', '1'); }
 
-  function boot() {
-    initMap();
-    bind();
-    reset(0);
-    let seen = false;
-    try { seen = localStorage.getItem('diambar-help') === '1'; localStorage.setItem('diambar-help', '1'); } catch (e) { /* stockage indisponible */ }
-    $('#help').hidden = seen;
-    requestAnimationFrame(frame);
+  // ---------- Démarrage ----------
+  async function start() {
+    RENDER.init($('#map'));
+    newWorld();
+    while (S.w.t < 0) stepOnce(true);
+    S.seenJournal = S.P.jseq || 0;
+    bindTimeline(); bindPane(); bindLayers(); buildLegend(); bindMap(); bindCaption(); buildCasesMenu(); bindControls(); syncSpeeds();
+    renderEnv();
+    requestAnimationFrame(loop);
+    if (!store.get('diambar-2027-vu')) $('#welcome').hidden = false;
+    window.addEventListener('resize', () => { tlCache.key = ''; RENDER.drawFrame(); });
   }
-
-  if (window.L) boot(); else document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
