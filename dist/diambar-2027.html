@@ -1127,6 +1127,9 @@ h1, h2, h3 { text-wrap: balance; }
 .sh-age { font: 600 12.5px var(--font-c); color: var(--muted); }
 
 /* Journal */
+.copyrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.copyrow .hint { margin: 0; }
+.copybox { width: 100%; height: 140px; margin-top: 8px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
 .journal { list-style: none; margin: 0; padding: 0; }
 .journal li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 6px 0 6px 8px; border-bottom: 1px solid var(--line-2); font-size: 13px; border-left: 3px solid transparent; }
 .journal time { font: 600 13px var(--font-c); color: var(--muted); }
@@ -5860,7 +5863,8 @@ window.DIAMBAR_GEO = {"bbox":[-23.6,10.4,-11,18.7],"land":{"type":"MultiPolygon"
   const JTYPES = { all: 'Tout', alert: 'Alertes', preuve: 'Preuves', decision: 'Décisions', asset: 'Moyens', sat: 'Satellites' };
   function journalView() {
     const list = S.P.journal.filter((j) => S.jfilter === 'all' || j.type === S.jfilter || (S.jfilter === 'alert' && j.type === 'indice')).slice(0, 250);
-    let h = `<div class="filters"><div class="chips">${Object.entries(JTYPES).map(([k, l]) => `<button type="button" class="chip" data-jf="${k}" aria-pressed="${S.jfilter === k}">${l}</button>`).join('')}</div></div>`;
+    let h = `<div class="filters"><div class="chips">${Object.entries(JTYPES).map(([k, l]) => `<button type="button" class="chip" data-jf="${k}" aria-pressed="${S.jfilter === k}">${l}</button>`).join('')}</div>
+      <div class="copyrow"><button type="button" class="btn sm" data-copy="journal">Copier le journal et les alertes</button><span class="hint" id="copyMsg">${esc(S.copyMsg || '')}</span></div></div>`;
     if (!list.length) return h + '<div class="empty">Le journal se remplit au fil de la simulation : alertes, envois de drones, preuves, décisions et passages satellites.</div>';
     h += `<ol class="journal">${list.map((j) => `<li class="j-${j.type}"><time>${hhmm(j.t)}</time><span>${j.ref ? `<button type="button" class="link" data-alert="${j.ref}">${esc(j.text)}</button>` : esc(j.text)}</span></li>`).join('')}</ol>`;
     return h;
@@ -5880,6 +5884,7 @@ window.DIAMBAR_GEO = {"bbox":[-23.6,10.4,-11,18.7],"land":{"type":"MultiPolygon"
         <div><b>${st.saved}</b><span>personnes secourues</span></div>
       </div></section>
       <section class="sys"><h3>Réglages de la démonstration</h3>
+        <div class="btnrow minor"><button type="button" class="btn" data-restart="1">Revenir au mercredi, 06 h 00</button></div>
         ${tog('script', 'Décisions automatiques', 'Un opérateur virtuel applique les décisions du scénario de référence (transmissions, interventions, sauvetages).')}
         ${tog('auto', 'Envoi automatique des drones', 'Un drone part vérifier dès que le score d\'une alerte atteint 60.')}
         ${tog('srModel', 'Modèle drones et satellites', 'Modèle de super-résolution entraîné sur les images des drones : les pirogues deviennent visibles sur les images satellites.')}
@@ -5927,6 +5932,8 @@ window.DIAMBAR_GEO = {"bbox":[-23.6,10.4,-11,18.7],"land":{"type":"MultiPolygon"
       }
       if (d.decide) { const inc = S.P.incidents.find((i) => i.id === S.sel.alertId); if (inc) { P_.decide(S.P, S.w, inc.id, d.decide); S.dirty = true; } return; }
       if (d.recall) { P_.recall(S.P, S.w, d.recall); S.dirty = true; return; }
+      if (d.copy) { copyJournal(); return; }
+      if (d.restart) { $('#caption').hidden = true; S.demo = null; seek(0).then(() => toastText('Scénario remis au mercredi 14 octobre, 06 h 00.')); return; }
       if (d.order) {
         const inc = S.P.incidents.find((i) => i.id === S.sel.alertId);
         const c = d.order === 'radar-center' || !inc ? RENDER.map.getCenter() : null;
@@ -5949,6 +5956,27 @@ window.DIAMBAR_GEO = {"bbox":[-23.6,10.4,-11,18.7],"land":{"type":"MultiPolygon"
     pane.addEventListener('input', (e) => {
       if (e.target.dataset.focus === 'shipq') { S.shipQuery = e.target.value; S.dirty = true; }
     });
+  }
+
+  // Copie du journal et des alertes au format JSON (pour un rapport ou une analyse)
+  function copyJournal() {
+    const P = S.P;
+    const data = JSON.stringify({
+      scenario: 'DIAMBAR 2027, démonstrateur', heure: hhmm(S.w.t),
+      journal: P.journal.slice().reverse().map((j) => ({ heure: hhmm(j.t), type: j.type, texte: j.text })),
+      alertes: P.incidents.map((i) => ({ id: i.id, titre: i.title, cible: i.label, score: i.score, statut: i.status, levee: hhmm(i.created), preuve: i.evidence ? { id: i.evidence.id, moyen: i.evidence.asset, heure: hhmm(i.evidence.t), constat: i.evidence.observations } : null, suites: (i.decisions || []).map((x) => x.label) })),
+    }, null, 2);
+    const say = (m) => { S.copyMsg = m; S.dirty = true; };
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = data; ta.className = 'copybox'; ta.setAttribute('readonly', '');
+      $('.copyrow').after(ta); ta.focus(); ta.select();
+      say('Texte sélectionné : copiez-le avec Ctrl+C.');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data).then(() => say('Copié dans le presse-papiers.'), fallback);
+      else fallback();
+    } catch (e) { fallback(); }
   }
 
   // ---------- Couches et légende ----------
